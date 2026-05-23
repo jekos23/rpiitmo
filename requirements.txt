@@ -1,0 +1,9 @@
+pyserial
+opencv-python
+numpy
+matplotlib
+adafruit-circuitpython-pca9685
+adafruit-blinka
+RPi.GPIO
+rpi-lgpio
+ultralytics
