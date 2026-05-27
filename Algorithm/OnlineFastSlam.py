@@ -1,6 +1,7 @@
 import numpy as np
 import cv2
 import time
+import os
 from Algorithm.FastSlam import ParticleFilter
 
 class OnlineFastSlam:
@@ -67,6 +68,10 @@ class OnlineFastSlam:
         if self.pf.weightUnbalanced():
             self.pf.resample()
 
+        # Автоматическое сохранение карты каждые 20 кадров (~2 секунды) даже в Headless режиме
+        if self.count % 20 == 0:
+            self.save_map_to_file()
+            
         if self.show_map and self.count % 2 == 0: # render every 2nd frame
             self.display_map()
 
@@ -99,3 +104,24 @@ class OnlineFastSlam:
             print(f"\n[ВНИМАНИЕ] Ошибка вывода графики (возможно, нет доступа к X-серверу): {e}")
             print("[ВНИМАНИЕ] Автоматически переключаюсь в режим 'Не показывать карту' для предотвращения сбоя.")
             self.show_map = False
+
+    def save_map_to_file(self):
+        os.makedirs("results", exist_ok=True)
+        bestParticle = self.pf.particles[0]
+        maxWeight = -1
+        for particle in self.pf.particles:
+            if maxWeight < particle.weight:
+                maxWeight = particle.weight
+                bestParticle = particle
+
+        xRange, yRange = [-10, 10], [-10, 10]
+        ogMapTotal = np.where(bestParticle.og.occupancyGridTotal == 0, 1, bestParticle.og.occupancyGridTotal)
+        ogMap = bestParticle.og.occupancyGridVisited / ogMapTotal
+        
+        xIdx, yIdx = bestParticle.og.convertRealXYToMapIdx(xRange, yRange)
+        ogMap = ogMap[yIdx[0]: yIdx[1], xIdx[0]: xIdx[1]]
+        
+        ogMap_img = (np.flipud(1 - ogMap) * 255).astype(np.uint8)
+        ogMap_img_large = cv2.resize(ogMap_img, (600, 600), interpolation=cv2.INTER_NEAREST)
+        
+        cv2.imwrite("results/map_latest.png", ogMap_img_large)

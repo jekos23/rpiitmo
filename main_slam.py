@@ -144,7 +144,7 @@ def slam_thread_function(driver, show_map):
         # Спим чтобы SLAM работал примерно 5-10 Гц
         time.sleep(0.1)
 
-def get_clearance(scan, target_angle_deg, robot_half_width=0.35):
+def get_clearance(scan, target_angle_deg, robot_half_width=0.40): # Увеличили зазор с боков на 5см
     """
     Вычисляет свободную дистанцию в направлении target_angle_deg,
     учитывая ширину робота (robot_half_width).
@@ -224,7 +224,7 @@ def autonomous_loop(driver, speed, detector=None):
     global current_mode, current_speed
     state = "FORWARD"
     
-    SAFE_DIST_FRONT = 0.60
+    SAFE_DIST_FRONT = 0.65 # Увеличили дистанцию остановки перед стеной на 5см
     
     try:
         while driver.running:
