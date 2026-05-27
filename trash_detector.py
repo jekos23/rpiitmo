@@ -57,13 +57,33 @@ class TrashDetector:
             detected = False
             angle = 0.0
             
-            # --- ЗАДЕЛКА ДЛЯ YOLO ---
+            # --- ИНФЕРЕНС YOLO ---
             if self.model:
-                # Запускаем инференс
-                # results = self.model(frame, classes=[0], verbose=False) # где 0 - это, например, ID мусора
-                # Если мусор найден, вычисляем его положение (bounding box)
-                # Вычисляем угол: (center_x - frame_width/2) / frame_width * FOV
-                pass 
+                try:
+                    # Запускаем распознавание
+                    results = self.model(frame, verbose=False)
+                    
+                    if len(results) > 0 and len(results[0].boxes) > 0:
+                        box = results[0].boxes[0]
+                        conf = float(box.conf)
+                        
+                        # Порог уверенности (50%)
+                        if conf > 0.5:
+                            detected = True
+                            
+                            # Координаты центра найденного объекта
+                            x1, y1, x2, y2 = box.xyxy[0]
+                            center_x = (float(x1) + float(x2)) / 2.0
+                            
+                            frame_width = self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)
+                            if frame_width == 0: frame_width = 320
+                            
+                            # Примерная оценка угла (исходим из того, что угол обзора камеры ~60 градусов)
+                            fov_deg = 60.0
+                            angle = ((center_x - (frame_width / 2.0)) / frame_width) * fov_deg
+                except Exception as e:
+                    print(f"[YOLO] Ошибка во время обработки кадра: {e}")
+                    time.sleep(1) 
                 
             # Для теста можно возвращать True, если вы захотите протестировать сервопривод
             # detected = False 

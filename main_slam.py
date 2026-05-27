@@ -355,8 +355,32 @@ def main():
     use_yolo = input("Запускать камеру с YOLO для сбора мусора? (y/n): ").strip().lower() == 'y'
     detector = None
     if use_yolo and TrashDetector:
-        detector = TrashDetector()
-        detector.start()
+        models_dir = "models"
+        if not os.path.exists(models_dir):
+            os.makedirs(models_dir)
+            
+        available_models = os.listdir(models_dir)
+        selected_model = None
+        
+        if not available_models:
+            print("\n[YOLO] В папке 'models' пусто! Пожалуйста, скопируйте туда ваши модели (папки NCNN).")
+        else:
+            print("\nДоступные модели в папке 'models':")
+            for i, m in enumerate(available_models):
+                print(f"{i+1} - {m}")
+            
+            try:
+                m_idx = int(input(f"Выберите модель (1-{len(available_models)}): ").strip()) - 1
+                if 0 <= m_idx < len(available_models):
+                    selected_model = os.path.join(models_dir, available_models[m_idx])
+            except ValueError:
+                print("Ошибка ввода.")
+                
+        if selected_model:
+            detector = TrashDetector(model_path=selected_model)
+            detector.start()
+        else:
+            print("[YOLO] Модель не выбрана, детектор мусора отключен.")
     
     print("\nВыберите режим работы:")
     print("1 - Ручной (управление с клавиатуры)")
