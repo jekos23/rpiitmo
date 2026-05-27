@@ -15,6 +15,11 @@ try:
 except ImportError:
     TrashDetector = None
 
+try:
+    from remote_trash_listener import RemoteTrashListener
+except ImportError:
+    RemoteTrashListener = None
+
 CONFIG_FILE = "config.json"
 def load_config():
     if os.path.exists(CONFIG_FILE):
@@ -352,9 +357,19 @@ def main():
     else:
         show_map = False
     
-    use_yolo = input("Запускать камеру с YOLO для сбора мусора? (y/n): ").strip().lower() == 'y'
+    print("\nГде запускать нейросеть YOLO для сбора мусора?")
+    print("1 - На телефоне / ПК (Максимальная скорость, по Wi-Fi)")
+    print("2 - Локально на Raspberry Pi (Низкий FPS)")
+    print("3 - Отключить сбор мусора")
+    yolo_choice = input("Ваш выбор (1, 2 или 3): ").strip()
+    
     detector = None
-    if use_yolo and TrashDetector:
+    if yolo_choice == '1' and RemoteTrashListener:
+        detector = RemoteTrashListener()
+        detector.start()
+        print("\n[ВНИМАНИЕ] На телефоне (в Pydroid 3) запустите скрипт `yolo_client.py`.")
+        
+    elif yolo_choice == '2' and TrashDetector:
         models_dir = "models"
         if not os.path.exists(models_dir):
             os.makedirs(models_dir)
@@ -381,6 +396,9 @@ def main():
             detector.start()
         else:
             print("[YOLO] Модель не выбрана, детектор мусора отключен.")
+            
+    else:
+        print("[YOLO] Сбор мусора отключен.")
     
     print("\nВыберите режим работы:")
     print("1 - Ручной (управление с клавиатуры)")
