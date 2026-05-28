@@ -36,8 +36,11 @@ def load_config():
 def save_config(cfg):
     try:
         with open(CONFIG_FILE, "w") as f:
-            json.dump(cfg, f)
+            json.dump(cfg, f, indent=4)
     except: pass
+
+# Загружаем глобальный конфиг, чтобы к нему был доступ из любых функций
+global_config = load_config()
 
 # Инициализация I2C шины и PCA9685
 try:
@@ -98,11 +101,15 @@ def set_servo_bucket(down=True):
     state = "ОПУСКАЮ" if down else "ПОДНИМАЮ"
     print(f"[СЕРВОПРИВОД - Канал {CHANNEL}] {state} ковш! (Частота переключена на 50 Гц)")
     
-    # Значения углов по умолчанию. Вы можете поменять их на те, что нашли при калибровке!
+    # Читаем откалиброванные углы из конфигурации
+    up_angle = global_config.get("servo_up_angle", 0)
+    down_angle = global_config.get("servo_down_angle", 180)
+    
+    # Значения углов берем из файла конфигурации!
     if down:
-        servo_motor.angle = 180  # Ковш опущен
+        servo_motor.angle = down_angle  # Ковш опущен (положение для сбора)
     else:
-        servo_motor.angle = 0    # Ковш поднят
+        servo_motor.angle = up_angle    # Ковш поднят (нулевое/транспортное положение)
         
     # Ждем пока ковш физически опустится/поднимется
     time.sleep(1.0)
@@ -172,6 +179,24 @@ def slam_thread_function(driver, show_map):
         
         # Спим чтобы SLAM работал примерно 5-10 Гц
         time.sleep(0.1)
+
+def get_lidar_distance(scan, target_angle_deg, cone_half_angle=5):
+    """
+    Ищет минимальную дистанцию в заданном секторе (target_angle_deg ± cone_half_angle).
+    Возвращает дистанцию в метрах или 999.0 если нет данных.
+    """
+    min_dist = 999.0
+    for angle_deg in range(360):
+        r = scan[angle_deg]
+        if r <= 0.0: continue
+        
+        rel_angle = (angle_deg - target_angle_deg) % 360
+        if rel_angle > 180: rel_angle -= 360
+        
+        if abs(rel_angle) <= cone_half_angle:
+            if r < min_dist:
+                min_dist = r
+    return min_dist
 
 def get_clearance(scan, target_angle_deg, robot_half_width=0.40): # Увеличили зазор с боков на 5см
     """
@@ -258,30 +283,49 @@ def autonomous_loop(driver, speed, detector=None):
     try:
         while driver.running:
             # --- ЛОГИКА СБОРА МУСОРА (YOLO) ---
-            if detector and detector.trash_detected:
-                stop_all()
-                print("[АВТОПИЛОТ] МУСОР ОБНАРУЖЕН! Перехват управления.")
-                state = "TRASH_COLLECT"
+            scan = driver.get_latest_scan()
+            
+            if detector and detector.trash_detected and state not in ["TRASH_APPROACH", "TRASH_COLLECT"]:
+                print(f"[АВТОПИЛОТ] МУСОР ОБНАРУЖЕН (Угол: {detector.trash_angle:.1f})! Начинаю сближение.")
+                state = "TRASH_APPROACH"
                 
-                # Подъезжаем (заглушка)
-                set_motors(speed//2, 0, speed//2, 0)
-                time.sleep(1.0) # Настраиваемое время подъезда
+            if state == "TRASH_APPROACH":
+                dist = get_lidar_distance(scan, detector.trash_angle)
+                print(f"[АВТОПИЛОТ] Сближение... Дистанция по лидару: {dist:.2f}м, Угол: {detector.trash_angle:.1f}°")
+                
+                # Если мусор слишком близко или потерян из виду вблизи (слепая зона)
+                if dist < 0.15 or (not detector.trash_detected and dist < 0.4):
+                    print("[АВТОПИЛОТ] Мусор в зоне захвата!")
+                    state = "TRASH_COLLECT"
+                elif not detector.trash_detected and dist >= 0.4:
+                    print("[АВТОПИЛОТ] Ложное срабатывание или мусор утерян вдали. Возврат.")
+                    state = "FORWARD"
+                else:
+                    # Подруливание (используем 50% скорости для плавности)
+                    if detector.trash_angle > 10:
+                        set_motors(speed//2, 0, 0, speed//2) # Вправо
+                    elif detector.trash_angle < -10:
+                        set_motors(0, speed//2, speed//2, 0) # Влево
+                    else:
+                        set_motors(speed//2, 0, speed//2, 0) # Прямо
+                time.sleep(0.1)
+                continue
+                
+            elif state == "TRASH_COLLECT":
                 stop_all()
                 time.sleep(0.5) # Даем моторам полностью остановиться перед сменой частоты
-                
-                # Собираем мусор
+                print("[АВТОПИЛОТ] Запускаю ковш!")
                 set_servo_bucket(down=True)
                 time.sleep(0.5)
                 set_servo_bucket(down=False)
                 time.sleep(0.5)
-                
                 print("[АВТОПИЛОТ] Мусор собран! Возврат к исследованию.")
                 state = "FORWARD"
-                detector.trash_detected = False
+                if detector:
+                    detector.trash_detected = False
                 continue
 
             # --- ЛОГИКА ИССЛЕДОВАТЕЛЯ С ЛИДАРОМ ---
-            scan = driver.get_latest_scan()
             
             clearance_front = get_clearance(scan, 0)
             
@@ -361,7 +405,12 @@ def autonomous_loop(driver, speed, detector=None):
 def main():
     print("=== Система управления + FastSLAM + YOLO ===")
     
-    config = load_config()
+    # Синхронизируем локальный и глобальный конфиги
+    config = global_config
+    
+    # При запуске сразу ставим ковш в нулевое (транспортное) положение
+    print("Установка ковша в нулевое положение...")
+    set_servo_bucket(down=False)
     
     # Запрос настроек у пользователя
     lidar_port = input(f"Введите порт лидара (Enter для {config.get('lidar_port', '/dev/ttyUSB0')}): ").strip()
