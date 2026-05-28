@@ -2,6 +2,10 @@ import time
 import board
 import busio
 from adafruit_pca9685 import PCA9685
+try:
+    from adafruit_motor import servo
+except ImportError:
+    servo = None
 import threading
 import sys
 import math
@@ -80,14 +84,34 @@ def set_motors(left_fwd, left_rev, right_fwd, right_rev):
     for ch in RIGHT_REV_CHANNELS: pca.channels[ch].duty_cycle = r_rev_pwm
 
 def set_servo_bucket(down=True):
-    if not pca: return
-    # ВНИМАНИЕ: Для DC моторов у нас pca.frequency = 1000. Сервоприводы обычно требуют 50 Гц!
-    # Если подключить сервопривод к 1000 Гц, он может сгореть или не работать.
-    # В будущем для ковша понадобится либо отдельный контроллер, либо изменить логику PWM.
-    # Это программная заделка.
+    if not pca or not servo: 
+        print("[СЕРВОПРИВОД] Ошибка: PCA9685 или библиотека adafruit_motor не найдены!")
+        return
+        
+    # Временно переключаем всю плату на 50 Гц для управления сервоприводом.
+    # Так как моторы сейчас остановлены (PWM=0), это безопасно.
+    pca.frequency = 50
+    
+    CHANNEL = 14
+    servo_motor = servo.Servo(pca.channels[CHANNEL], min_pulse=500, max_pulse=2500)
+    
     state = "ОПУСКАЮ" if down else "ПОДНИМАЮ"
-    print(f"[СЕРВОПРИВОД - Канал 15] {state} ковш!")
-    # pca.channels[15].duty_cycle = ...
+    print(f"[СЕРВОПРИВОД - Канал {CHANNEL}] {state} ковш! (Частота переключена на 50 Гц)")
+    
+    # Значения углов по умолчанию. Вы можете поменять их на те, что нашли при калибровке!
+    if down:
+        servo_motor.angle = 180  # Ковш опущен
+    else:
+        servo_motor.angle = 0    # Ковш поднят
+        
+    # Ждем пока ковш физически опустится/поднимется
+    time.sleep(1.0)
+    
+    # Отключаем ШИМ сигнал на сервопривод, чтобы он не дрожал и не тратил ток
+    pca.channels[CHANNEL].duty_cycle = 0
+    
+    # Возвращаем частоту обратно на 1000 Гц для правильной работы моторов колес
+    pca.frequency = 1000
 
 def stop_all():
     set_motors(0, 0, 0, 0)
@@ -241,14 +265,15 @@ def autonomous_loop(driver, speed, detector=None):
                 
                 # Подъезжаем (заглушка)
                 set_motors(speed//2, 0, speed//2, 0)
-                time.sleep(1.0)
+                time.sleep(1.0) # Настраиваемое время подъезда
                 stop_all()
+                time.sleep(0.5) # Даем моторам полностью остановиться перед сменой частоты
                 
                 # Собираем мусор
                 set_servo_bucket(down=True)
-                time.sleep(2.0)
+                time.sleep(0.5)
                 set_servo_bucket(down=False)
-                time.sleep(1.0)
+                time.sleep(0.5)
                 
                 print("[АВТОПИЛОТ] Мусор собран! Возврат к исследованию.")
                 state = "FORWARD"
