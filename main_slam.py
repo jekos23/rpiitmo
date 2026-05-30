@@ -468,7 +468,7 @@ def set_bucket_motor(speed):
         pca.channels[rev_channel].duty_cycle = 0
     return True
 
-def pulse_bucket_motor(speed, duration_sec=None):
+def legacy_pulse_bucket_motor_unused(speed, duration_sec=None):
     duration_sec = float(duration_sec if duration_sec is not None else global_config.get("bucket_motor_pulse_sec", 0.7))
     try:
         set_bucket_motor(speed)
@@ -476,7 +476,7 @@ def pulse_bucket_motor(speed, duration_sec=None):
     finally:
         set_bucket_motor(0)
 
-def run_bucket_collect_cycle():
+def legacy_run_bucket_collect_cycle_unused():
     lower_before_collect = bool(global_config.get("bucket_lower_before_collect", True))
     lower_pause_sec = float(global_config.get("bucket_lower_pause_sec", 0.25))
     collect_speed = int(global_config.get("bucket_motor_collect_speed", 2800))
@@ -511,7 +511,7 @@ def handle_remote_servo_command(command):
     except ValueError:
         print(f"[REMOTE] Неизвестная команда сервоприводу: {command}")
 
-def handle_remote_bucket_motor_command(command):
+def legacy_handle_remote_bucket_motor_command_unused(command):
     command = str(command).strip().upper()
     collect_speed = int(global_config.get("bucket_motor_collect_speed", 2800))
     reverse_speed = int(global_config.get("bucket_motor_reverse_speed", -collect_speed))
@@ -639,7 +639,10 @@ def calibrate_bucket_wall(config):
     print("  q - завершить калибровку")
 
     manual_speed = int(config.get("bucket_wall_manual_speed", 1800))
-    manual_pulse_sec = float(config.get("bucket_wall_manual_calibration_pulse_sec", 0.35))
+    if "bucket_wall_manual_calibration_pulse_sec" not in config:
+        config["bucket_wall_manual_calibration_pulse_sec"] = 1.5
+        save_config(config)
+    manual_pulse_sec = float(config.get("bucket_wall_manual_calibration_pulse_sec", 1.5))
     search_position = config.get("bucket_wall_search_pot")
     lower_position = config.get("bucket_wall_lower_pot")
 
@@ -1018,7 +1021,7 @@ def autonomous_loop(driver, speed, detector=None):
     finally:
         stop_all()
 
-def main():
+def legacy_main_unused():
     print("=== Система управления + FastSLAM + YOLO ===")
     
     # Синхронизируем локальный и глобальный конфиги
