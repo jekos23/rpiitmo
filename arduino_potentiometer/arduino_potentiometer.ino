@@ -3,7 +3,7 @@
 const int potPin = A0;
 const int servoPin = 9;
 const int servoUpAngle = 0;
-const int servoDownAngle = 180;
+const int servoDownAngle = 90;
 const unsigned long telemetryIntervalMs = 50;
 
 Servo bucketServo;
