@@ -612,6 +612,24 @@ def move_bucket_wall_to_position(target_value, label="Стенка ковша", 
     print(f"[СТЕНКА] Не удалось довести '{label}' до цели {target_value}. Последнее значение: {get_bucket_wall_position(0.1)}.")
     return False
 
+def run_bucket_wall_timed_test(duration_sec=None, speed=None):
+    duration_sec = float(
+        duration_sec if duration_sec is not None else global_config.get("bucket_wall_manual_calibration_pulse_sec", 2.0)
+    )
+    speed = abs(int(speed if speed is not None else global_config.get("bucket_wall_manual_speed", 1400)))
+
+    print(f"[РЎРўР•РќРљРђ] РўРµСЃС‚: РїРѕРґРЅРёРјР°СЋ СЃРѕРІРѕРє РЅР°Р·Р°Рґ РЅР° {duration_sec:.1f} СЃРµРє.")
+    before_up, after_up = pulse_bucket_motor(-speed, duration_sec)
+    _remember_bucket_wall_direction(-speed, before_up, after_up)
+
+    time.sleep(0.2)
+
+    print(f"[РЎРўР•РќРљРђ] РўРµСЃС‚: РѕРїСѓСЃРєР°СЋ СЃРѕРІРѕРє РІРїРµСЂРµРґ РЅР° {duration_sec:.1f} СЃРµРє.")
+    before_down, after_down = pulse_bucket_motor(speed, duration_sec)
+    _remember_bucket_wall_direction(speed, before_down, after_down)
+
+    return True
+
 def calibrate_bucket_wall(config):
     search_position = config.get("bucket_wall_search_pot")
     lower_position = config.get("bucket_wall_lower_pot")
@@ -642,10 +660,10 @@ def calibrate_bucket_wall(config):
         config["bucket_wall_manual_speed"] = 1400
         save_config(config)
     manual_speed = int(config.get("bucket_wall_manual_speed", 1400))
-    if "bucket_wall_manual_calibration_pulse_sec" not in config:
-        config["bucket_wall_manual_calibration_pulse_sec"] = 0.5
+    if float(config.get("bucket_wall_manual_calibration_pulse_sec", 2.0)) != 2.0:
+        config["bucket_wall_manual_calibration_pulse_sec"] = 2.0
         save_config(config)
-    manual_pulse_sec = float(config.get("bucket_wall_manual_calibration_pulse_sec", 0.5))
+    manual_pulse_sec = float(config.get("bucket_wall_manual_calibration_pulse_sec", 2.0))
     search_position = config.get("bucket_wall_search_pot")
     lower_position = config.get("bucket_wall_lower_pot")
 
@@ -655,11 +673,13 @@ def calibrate_bucket_wall(config):
         command = input("Калибровка стенки > ").strip().lower()
 
         if command == "j":
-            before, after = pulse_bucket_motor(manual_speed, manual_pulse_sec)
-            _remember_bucket_wall_direction(manual_speed, before, after)
-        elif command == "k":
             before, after = pulse_bucket_motor(-manual_speed, manual_pulse_sec)
             _remember_bucket_wall_direction(-manual_speed, before, after)
+        elif command == "k":
+            before, after = pulse_bucket_motor(manual_speed, manual_pulse_sec)
+            _remember_bucket_wall_direction(manual_speed, before, after)
+        elif command == "t":
+            run_bucket_wall_timed_test(manual_pulse_sec, manual_speed)
         elif command == "p":
             continue
         elif command == "s":
