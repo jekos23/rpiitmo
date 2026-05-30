@@ -300,7 +300,7 @@ def _legacy_set_servo_bucket(down=True):
     
     # Читаем откалиброванные углы из конфигурации
     up_angle = global_config.get("servo_up_angle", 0)
-    down_angle = global_config.get("servo_down_angle", 180)
+    down_angle = global_config.get("servo_down_angle", 90)
     
     # Значения углов берем из файла конфигурации!
     if down:
@@ -438,7 +438,7 @@ def _move_bucket_servo_to_angle(target_angle, label, wait=True):
 
 def set_servo_bucket(down=True, wait=True):
     up_angle = global_config.get("servo_up_angle", 0)
-    down_angle = global_config.get("servo_down_angle", 180)
+    down_angle = global_config.get("servo_down_angle", 90)
     target_angle = down_angle if down else up_angle
     label = "ОПУСКАЮ" if down else "ПОДНИМАЮ"
     return _move_bucket_servo_to_angle(target_angle, label, wait=wait)
@@ -1219,6 +1219,8 @@ def main():
         forbidden_ports={lidar_port},
     )
     config["arduino_port"] = arduino_port
+    config["servo_up_angle"] = 0
+    config["servo_down_angle"] = 90
     camera_port = prompt_for_camera_port(config.get("camera_port", "/dev/video0"))
     config["camera_port"] = camera_port
     start_video_streamer(config)

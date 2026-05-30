@@ -99,8 +99,8 @@ def main():
         return
 
     up_angle = config.get("servo_up_angle", 0)
-    down_angle = config.get("servo_down_angle", 180)
-    current_angle = int(config.get("servo_up_angle", 90))
+    down_angle = config.get("servo_down_angle", 90)
+    current_angle = int(config.get("servo_up_angle", 0))
 
     print(f"Калибровка сервы через Arduino на {arduino_port}.")
     print("Введите угол от 0 до 180.")
