@@ -638,7 +638,10 @@ def calibrate_bucket_wall(config):
     print("  l - сохранить текущее значение как НИЖНЕЕ положение")
     print("  q - завершить калибровку")
 
-    manual_speed = int(config.get("bucket_wall_manual_speed", 1800))
+    if "bucket_wall_manual_speed" not in config:
+        config["bucket_wall_manual_speed"] = 1400
+        save_config(config)
+    manual_speed = int(config.get("bucket_wall_manual_speed", 1400))
     if "bucket_wall_manual_calibration_pulse_sec" not in config:
         config["bucket_wall_manual_calibration_pulse_sec"] = 1.5
         save_config(config)
@@ -1246,6 +1249,12 @@ def main():
     print("3 - Не показывать вообще")
     map_choice = input("Ваш выбор (1, 2 или 3): ").strip()
 
+    if not map_choice:
+        map_choice = str(config.get("map_choice", "3"))
+    if map_choice not in {"1", "2", "3"}:
+        map_choice = str(config.get("map_choice", "3"))
+    config["map_choice"] = map_choice
+
     if map_choice == "2":
         os.environ["DISPLAY"] = ":0"
         show_map = True
@@ -1259,6 +1268,12 @@ def main():
     print("2 - Локально на Raspberry Pi (низкий FPS)")
     print("3 - Отключить сбор мусора")
     yolo_choice = input("Ваш выбор (1, 2 или 3): ").strip()
+
+    if not yolo_choice:
+        yolo_choice = str(config.get("yolo_choice", "1"))
+    if yolo_choice not in {"1", "2", "3"}:
+        yolo_choice = str(config.get("yolo_choice", "1"))
+    config["yolo_choice"] = yolo_choice
 
     detector = None
     if yolo_choice == "1" and RemoteTrashListener:
