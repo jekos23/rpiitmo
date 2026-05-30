@@ -26,7 +26,8 @@ try:
 except ImportError:
     RemoteTrashListener = None
 
-CONFIG_FILE = "config.json"
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+CONFIG_FILE = os.path.join(SCRIPT_DIR, "config.json")
 def load_config():
     if os.path.exists(CONFIG_FILE):
         try:
@@ -36,10 +37,12 @@ def load_config():
     return {}
 
 def save_config(cfg):
+    global global_config
     try:
         with open(CONFIG_FILE, "w") as f:
             json.dump(cfg, f, indent=4)
     except: pass
+    global_config = dict(cfg)
 
 def find_serial_candidates():
     candidates = []
@@ -636,6 +639,7 @@ def calibrate_bucket_wall(config):
     print("  q - завершить калибровку")
 
     manual_speed = int(config.get("bucket_wall_manual_speed", 1800))
+    manual_pulse_sec = float(config.get("bucket_wall_manual_calibration_pulse_sec", 0.35))
     search_position = config.get("bucket_wall_search_pot")
     lower_position = config.get("bucket_wall_lower_pot")
 
@@ -645,10 +649,10 @@ def calibrate_bucket_wall(config):
         command = input("Калибровка стенки > ").strip().lower()
 
         if command == "j":
-            before, after = pulse_bucket_motor(manual_speed)
+            before, after = pulse_bucket_motor(manual_speed, manual_pulse_sec)
             _remember_bucket_wall_direction(manual_speed, before, after)
         elif command == "k":
-            before, after = pulse_bucket_motor(-manual_speed)
+            before, after = pulse_bucket_motor(-manual_speed, manual_pulse_sec)
             _remember_bucket_wall_direction(-manual_speed, before, after)
         elif command == "p":
             continue
@@ -1043,7 +1047,7 @@ def main():
     config["arduino_port"] = arduino_port
     init_bucket_arduino(config)
     print("Установка ковша в нулевое положение...")
-    set_servo_bucket(down=False)
+    set_servo_bucket(down=True)
         
     print("\nГде показывать карту SLAM?")
     print("1 - Показывать в Tailscale (через SSH с пробросом X11 или VNC)")
@@ -1231,7 +1235,7 @@ def main():
 
     print("\nУстановка ковша в поисковое положение...")
     move_bucket_wall_to_search_position()
-    set_servo_bucket(down=False)
+    set_servo_bucket(down=True)
 
     print("\nГде показывать карту SLAM?")
     print("1 - Показывать в Tailscale (через SSH с X11 или VNC)")
@@ -1295,6 +1299,16 @@ def main():
     print("1 - Ручной (управление с клавиатуры)")
     print("2 - Автопилот (обход препятствий и сбор мусора)")
     mode_choice = input("Ваш выбор (1 или 2): ").strip()
+
+    if not mode_choice:
+        mode_choice = str(config.get("run_mode", "2"))
+    if mode_choice not in {"1", "2"}:
+        print("[РЕЖИМ] Неизвестный режим, включаю автопилот по умолчанию.")
+        mode_choice = "2"
+    config["run_mode"] = mode_choice
+
+    if detector and hasattr(detector, "set_allow_text_commands"):
+        detector.set_allow_text_commands(mode_choice != "2")
 
     auto_speed = config.get("auto_speed", 1500)
     if mode_choice == "2":

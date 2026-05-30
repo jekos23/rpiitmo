@@ -5,11 +5,12 @@ import time
 
 
 class RemoteTrashListener:
-    def __init__(self, port=5005, on_servo_command=None, on_motor_command=None):
+    def __init__(self, port=5005, on_servo_command=None, on_motor_command=None, allow_text_commands=False):
         self.port = port
         self.running = False
         self.on_servo_command = on_servo_command
         self.on_motor_command = on_motor_command
+        self.allow_text_commands = bool(allow_text_commands)
 
         self.trash_detected = False
         self.trash_angle = 0.0
@@ -29,7 +30,13 @@ class RemoteTrashListener:
         if self.sock:
             self.sock.close()
 
+    def set_allow_text_commands(self, allowed):
+        self.allow_text_commands = bool(allowed)
+
     def _dispatch_text_command(self, message_text):
+        if not self.allow_text_commands:
+            return False
+
         upper_text = message_text.upper()
 
         if upper_text.startswith("SERVO:"):

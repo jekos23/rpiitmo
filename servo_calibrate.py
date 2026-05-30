@@ -9,7 +9,8 @@ except ImportError:
     serial = None
 
 
-CONFIG_FILE = "config.json"
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+CONFIG_FILE = os.path.join(SCRIPT_DIR, "config.json")
 
 
 def load_config():
