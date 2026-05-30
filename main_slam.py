@@ -479,7 +479,7 @@ def legacy_pulse_bucket_motor_unused(speed, duration_sec=None):
 def legacy_run_bucket_collect_cycle_unused():
     lower_before_collect = bool(global_config.get("bucket_lower_before_collect", True))
     lower_pause_sec = float(global_config.get("bucket_lower_pause_sec", 0.25))
-    collect_speed = int(global_config.get("bucket_motor_collect_speed", 2800))
+    collect_speed = int(global_config.get("bucket_motor_collect_speed", 4095))
     collect_duration_sec = float(global_config.get("bucket_motor_collect_duration_sec", 1.1))
     settle_after_sec = float(global_config.get("bucket_collect_settle_sec", 0.2))
 
@@ -564,7 +564,7 @@ def ensure_bucket_wall_direction():
     if bucket_wall_increase_direction_sign in (-1, 1):
         return bucket_wall_increase_direction_sign
 
-    test_speed = int(global_config.get("bucket_wall_detect_speed", 1400))
+    test_speed = int(global_config.get("bucket_wall_detect_speed", 4095))
     for speed in (test_speed, -test_speed):
         before, after = pulse_bucket_motor(speed, global_config.get("bucket_wall_detect_pulse_sec", 0.12))
         _remember_bucket_wall_direction(speed, before, after)
@@ -586,7 +586,7 @@ def move_bucket_wall_to_position(target_value, label="Стенка ковша", 
 
     tolerance = int(global_config.get("bucket_wall_tolerance", 25))
     min_speed = int(global_config.get("bucket_wall_min_speed", 1200))
-    max_speed = int(global_config.get("bucket_wall_max_speed", 3000))
+    max_speed = int(global_config.get("bucket_wall_max_speed", 4095))
     kp = float(global_config.get("bucket_wall_kp", 10.0))
     timeout_sec = float(timeout_sec if timeout_sec is not None else global_config.get("bucket_wall_move_timeout_sec", 5.0))
     deadline = time.time() + timeout_sec
@@ -616,7 +616,7 @@ def run_bucket_wall_timed_test(duration_sec=None, speed=None):
     duration_sec = float(
         duration_sec if duration_sec is not None else global_config.get("bucket_wall_manual_calibration_pulse_sec", 2.0)
     )
-    speed = abs(int(speed if speed is not None else global_config.get("bucket_wall_manual_speed", 1400)))
+    speed = abs(int(speed if speed is not None else global_config.get("bucket_wall_manual_speed", 4095)))
 
     print(f"[РЎРўР•РќРљРђ] РўРµСЃС‚: РїРѕРґРЅРёРјР°СЋ СЃРѕРІРѕРє РЅР°Р·Р°Рґ РЅР° {duration_sec:.1f} СЃРµРє.")
     before_up, after_up = pulse_bucket_motor(-speed, duration_sec)
@@ -656,10 +656,10 @@ def calibrate_bucket_wall(config):
     print("  l - сохранить текущее значение как НИЖНЕЕ положение")
     print("  q - завершить калибровку")
 
-    if "bucket_wall_manual_speed" not in config:
-        config["bucket_wall_manual_speed"] = 1400
+    if int(config.get("bucket_wall_manual_speed", 4095)) != 4095:
+        config["bucket_wall_manual_speed"] = 4095
         save_config(config)
-    manual_speed = int(config.get("bucket_wall_manual_speed", 1400))
+    manual_speed = int(config.get("bucket_wall_manual_speed", 4095))
     if float(config.get("bucket_wall_manual_calibration_pulse_sec", 2.0)) != 2.0:
         config["bucket_wall_manual_calibration_pulse_sec"] = 2.0
         save_config(config)
@@ -750,13 +750,13 @@ def handle_remote_bucket_motor_command(command):
     elif command == "JOG+":
         threading.Thread(
             target=pulse_bucket_motor,
-            args=(int(global_config.get("bucket_wall_manual_speed", 1800)),),
+            args=(int(global_config.get("bucket_wall_manual_speed", 4095)),),
             daemon=True,
         ).start()
     elif command == "JOG-":
         threading.Thread(
             target=pulse_bucket_motor,
-            args=(-int(global_config.get("bucket_wall_manual_speed", 1800)),),
+            args=(-int(global_config.get("bucket_wall_manual_speed", 4095)),),
             daemon=True,
         ).start()
     elif command in {"STOP", "0"}:
@@ -1251,6 +1251,11 @@ def main():
     config["arduino_port"] = arduino_port
     config["servo_up_angle"] = 0
     config["servo_down_angle"] = 90
+    config["bucket_wall_manual_speed"] = 4095
+    config["bucket_motor_collect_speed"] = 4095
+    config["bucket_motor_reverse_speed"] = -4095
+    config["bucket_wall_detect_speed"] = 4095
+    config["bucket_wall_max_speed"] = 4095
     camera_port = prompt_for_camera_port(config.get("camera_port", "/dev/video0"))
     config["camera_port"] = camera_port
     start_video_streamer(config)
