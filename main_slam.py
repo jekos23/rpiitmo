@@ -735,6 +735,7 @@ def run_bucket_collect_cycle():
         servo_thread.start()
         move_bucket_wall_to_search_position()
         servo_thread.join(timeout=servo_join_timeout_sec)
+        set_servo_bucket(down=True, wait=True)
     finally:
         set_bucket_motor(0)
         time.sleep(settle_after_sec)
@@ -763,6 +764,105 @@ def handle_remote_bucket_motor_command(command):
         set_bucket_motor(0)
     else:
         print(f"[REMOTE] Неизвестная команда мотору ковша: {command}")
+
+bucket_wall_position_state = "unknown"
+
+def _save_bucket_wall_state(state):
+    global bucket_wall_position_state, global_config
+    if state not in {"search", "lower", "unknown"}:
+        return
+    bucket_wall_position_state = state
+    global_config["bucket_wall_current_state"] = state
+    save_config(global_config)
+
+def _get_bucket_wall_move_duration():
+    return float(global_config.get("bucket_wall_move_duration_sec", 2.0))
+
+def _get_bucket_wall_drive_speed():
+    return abs(int(global_config.get("bucket_wall_manual_speed", 4095)))
+
+def _run_bucket_wall_motion(direction, label, duration_sec=None):
+    duration_sec = float(duration_sec if duration_sec is not None else _get_bucket_wall_move_duration())
+    speed = _get_bucket_wall_drive_speed()
+    signed_speed = speed if direction > 0 else -speed
+    print(f"[BUCKET] {label}: {duration_sec:.1f}s at full power.")
+    pulse_bucket_motor(signed_speed, duration_sec)
+    return True
+
+def move_bucket_wall_to_search_position():
+    global bucket_wall_position_state
+    if bucket_wall_position_state == "search":
+        print("[BUCKET] Wall is already in search position.")
+        return True
+    _run_bucket_wall_motion(-1, "Raise wall to search position")
+    _save_bucket_wall_state("search")
+    return True
+
+def move_bucket_wall_to_lower_position():
+    global bucket_wall_position_state
+    if bucket_wall_position_state == "lower":
+        print("[BUCKET] Wall is already in lowered position.")
+        return True
+    _run_bucket_wall_motion(1, "Lower wall to pickup position")
+    _save_bucket_wall_state("lower")
+    return True
+
+def run_bucket_wall_timed_test(duration_sec=None, speed=None):
+    duration_sec = float(duration_sec if duration_sec is not None else _get_bucket_wall_move_duration())
+    print(f"[BUCKET] Timed test: raise for {duration_sec:.1f}s, then lower for {duration_sec:.1f}s.")
+    _run_bucket_wall_motion(-1, "Raise wall test", duration_sec)
+    time.sleep(0.2)
+    _run_bucket_wall_motion(1, "Lower wall test", duration_sec)
+    return True
+
+def calibrate_bucket_wall(config):
+    global bucket_wall_position_state, global_config
+
+    config["bucket_wall_manual_speed"] = 4095
+    config["bucket_wall_move_duration_sec"] = 2.0
+
+    saved_state = str(config.get("bucket_wall_current_state", "search")).strip().lower()
+    if saved_state not in {"search", "lower"}:
+        saved_state = "search"
+
+    print("\n=== BUCKET WALL SETUP ===")
+    print("The potentiometer is disabled.")
+    print("Wall motion now uses fixed timed moves of 2 seconds.")
+    print("1 - Search position / raised wall")
+    print("2 - Lowered position / pickup wall")
+    current_choice = input(f"Current wall position (Enter for {saved_state}): ").strip().lower()
+
+    if current_choice in {"2", "lower", "down", "pickup"}:
+        bucket_wall_position_state = "lower"
+    elif current_choice in {"1", "search", "up", "raised", ""}:
+        bucket_wall_position_state = saved_state if current_choice == "" else "search"
+    else:
+        bucket_wall_position_state = saved_state
+
+    config["bucket_wall_current_state"] = bucket_wall_position_state
+    save_config(config)
+    global_config = dict(config)
+
+    test_choice = input("Run timed wall test now? (y/n, Enter=n): ").strip().lower()
+    if test_choice == "y":
+        run_bucket_wall_timed_test(config.get("bucket_wall_move_duration_sec", 2.0))
+
+    return True
+
+def handle_remote_bucket_motor_command(command):
+    command = str(command).strip().upper()
+    if command in {"DOWN", "LOWER"}:
+        threading.Thread(target=move_bucket_wall_to_lower_position, daemon=True).start()
+    elif command in {"UP", "SEARCH", "RAISE"}:
+        threading.Thread(target=move_bucket_wall_to_search_position, daemon=True).start()
+    elif command == "COLLECT":
+        threading.Thread(target=run_bucket_collect_cycle, daemon=True).start()
+    elif command in {"TEST", "TIMED"}:
+        threading.Thread(target=run_bucket_wall_timed_test, daemon=True).start()
+    elif command in {"STOP", "0"}:
+        set_bucket_motor(0)
+    else:
+        print(f"[REMOTE] Unknown bucket motor command: {command}")
 
 def stop_all():
     set_motors(0, 0, 0, 0)
@@ -1380,6 +1480,7 @@ def main():
             print("Режимы: 1-Вперед, 2-Назад, 3-Влево, 4-Вправо, 0-Остановка")
             print("Скорость: 0 - 4095. Enter или stop - экстренная остановка.\n")
 
+            print("Manual bucket commands: wall_up, wall_down, scoop_up, scoop_down, bucket_test, collect")
             stop_all()
 
             while True:
@@ -1388,6 +1489,26 @@ def main():
                 if not cmd or cmd.lower() in ["e", "s", "stop"]:
                     stop_all()
                     print("ЭКСТРЕННАЯ ОСТАНОВКА!")
+                    continue
+
+                lowered_cmd = cmd.lower()
+                if lowered_cmd in ["wall_up", "lift_up", "raise_wall"]:
+                    move_bucket_wall_to_search_position()
+                    continue
+                if lowered_cmd in ["wall_down", "lift_down", "lower_wall"]:
+                    move_bucket_wall_to_lower_position()
+                    continue
+                if lowered_cmd in ["scoop_up", "bucket_up", "servo_up"]:
+                    set_servo_bucket(down=False, wait=True)
+                    continue
+                if lowered_cmd in ["scoop_down", "bucket_down", "servo_down"]:
+                    set_servo_bucket(down=True, wait=True)
+                    continue
+                if lowered_cmd in ["bucket_test", "wall_test", "timed_test"]:
+                    run_bucket_wall_timed_test()
+                    continue
+                if lowered_cmd in ["collect", "bucket_collect"]:
+                    run_bucket_collect_cycle()
                     continue
 
                 try:
