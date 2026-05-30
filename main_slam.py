@@ -12,6 +12,7 @@ import math
 import json
 import os
 import glob
+import subprocess
 
 from ld06_driver import LD06Driver
 from Algorithm.OnlineFastSlam import OnlineFastSlam
@@ -80,6 +81,31 @@ def prompt_for_serial_port(label, saved_port=None, forbidden_ports=None):
 
         return port
 
+def find_camera_candidates():
+    return sorted(dict.fromkeys(glob.glob("/dev/video*")))
+
+def prompt_for_camera_port(saved_port=None):
+    candidates = find_camera_candidates()
+    if candidates:
+        print("\nДоступные видеоустройства:")
+        for port in candidates:
+            print(f" - {port}")
+
+    while True:
+        prompt = "Введите порт камеры"
+        if saved_port:
+            prompt += f" (Enter для {saved_port})"
+        prompt += ": "
+
+        camera_port = input(prompt).strip()
+        if not camera_port and saved_port:
+            camera_port = saved_port
+
+        if camera_port:
+            return camera_port
+
+        print("Порт камеры обязателен.")
+
 # Загружаем глобальный конфиг, чтобы к нему был доступ из любых функций
 global_config = load_config()
 
@@ -108,6 +134,7 @@ bucket_arduino_running = False
 bucket_arduino_reader_thread = None
 last_bucket_pot_value = None
 bucket_channel_warning_shown = False
+video_streamer_process = None
 bucket_wall_increase_direction_sign = None
 
 current_mode = 0
@@ -1075,6 +1102,10 @@ def main():
         forbidden_ports={lidar_port},
     )
     config["arduino_port"] = arduino_port
+    camera_port = prompt_for_camera_port(config.get("camera_port", "/dev/video0"))
+    config["camera_port"] = camera_port
+    start_video_streamer(config)
+    save_config(config)
 
     init_bucket_arduino(config)
     calibrate_bucket_wall(config)
@@ -1223,6 +1254,59 @@ def main():
         stop_all()
         driver.stop()
         close_bucket_arduino()
+        stop_video_streamer()
+
+def start_video_streamer(config):
+    global video_streamer_process
+
+    if video_streamer_process and video_streamer_process.poll() is None:
+        print("[VIDEO] Видеостример уже запущен.")
+        return
+
+    camera_port = config.get("camera_port", "/dev/video0")
+    stream_host = config.get("camera_stream_host", "0.0.0.0")
+    stream_port = int(config.get("camera_stream_port", 5000))
+    script_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "video_streamer.py")
+
+    command = [
+        sys.executable,
+        script_path,
+        "--camera",
+        str(camera_port),
+        "--host",
+        stream_host,
+        "--port",
+        str(stream_port),
+    ]
+
+    try:
+        video_streamer_process = subprocess.Popen(command)
+        time.sleep(1.0)
+        if video_streamer_process.poll() is None:
+            print(f"[VIDEO] Видеостример запущен для {camera_port} на порту {stream_port}.")
+        else:
+            print("[VIDEO] Видеостример завершился сразу после запуска. Проверьте порт камеры.")
+    except Exception as e:
+        print(f"[VIDEO] Не удалось запустить видеостример: {e}")
+        video_streamer_process = None
+
+def stop_video_streamer():
+    global video_streamer_process
+
+    if not video_streamer_process:
+        return
+
+    try:
+        if video_streamer_process.poll() is None:
+            video_streamer_process.terminate()
+            video_streamer_process.wait(timeout=3)
+    except Exception:
+        try:
+            video_streamer_process.kill()
+        except Exception:
+            pass
+    finally:
+        video_streamer_process = None
 
 if __name__ == "__main__":
     main()
