@@ -59,7 +59,7 @@ def prompt_for_serial_port(label, saved_port=None, forbidden_ports=None):
     if candidates:
         print(f"\nДоступные порты для {label}:")
         for port in candidates:
-            print(f" - {port}")
+            print(f" - {_format_camera_label(port)}")
 
     while True:
         prompt = f"Введите порт {label}"
@@ -84,6 +84,95 @@ def prompt_for_serial_port(label, saved_port=None, forbidden_ports=None):
 def find_camera_candidates():
     return sorted(dict.fromkeys(glob.glob("/dev/video*")))
 
+def _read_text_if_exists(path):
+    try:
+        with open(path, "r", encoding="utf-8", errors="ignore") as handle:
+            return handle.read().strip()
+    except OSError:
+        return None
+
+def _normalize_camera_address(value):
+    if not value:
+        return None
+
+    cleaned = str(value).strip()
+    for separator in ("Bus", "bus", "Device", "device", ",", ";", "usb"):
+        cleaned = cleaned.replace(separator, " ")
+
+    cleaned = cleaned.replace("/", ":").replace("-", ":")
+    if ":" in cleaned:
+        bus_part, dev_part = cleaned.split(":", 1)
+        if bus_part.strip().isdigit() and dev_part.strip().isdigit():
+            return f"{int(bus_part):03d}:{int(dev_part):03d}"
+
+    digits = [part for part in cleaned.split() if part.isdigit()]
+    if len(digits) >= 2:
+        return f"{int(digits[0]):03d}:{int(digits[1]):03d}"
+
+    return None
+
+def _get_camera_usb_identity(port):
+    video_name = os.path.basename(port)
+    sysfs_dir = os.path.join("/sys/class/video4linux", video_name)
+    device_dir = os.path.realpath(os.path.join(sysfs_dir, "device"))
+    if not os.path.exists(device_dir):
+        return None
+
+    current_dir = device_dir
+    while True:
+        bus_num = _read_text_if_exists(os.path.join(current_dir, "busnum"))
+        dev_num = _read_text_if_exists(os.path.join(current_dir, "devnum"))
+        if bus_num and dev_num and bus_num.isdigit() and dev_num.isdigit():
+            product = _read_text_if_exists(os.path.join(current_dir, "product"))
+            manufacturer = _read_text_if_exists(os.path.join(current_dir, "manufacturer"))
+            return {
+                "address": f"{int(bus_num):03d}:{int(dev_num):03d}",
+                "product": product,
+                "manufacturer": manufacturer,
+            }
+
+        parent_dir = os.path.dirname(current_dir)
+        if parent_dir == current_dir:
+            break
+        current_dir = parent_dir
+
+    return None
+
+def _format_camera_label(port):
+    identity = _get_camera_usb_identity(port)
+    if not identity:
+        return port
+
+    details = []
+    if identity.get("manufacturer"):
+        details.append(identity["manufacturer"])
+    if identity.get("product"):
+        details.append(identity["product"])
+
+    if details:
+        return f"{port} (USB {identity['address']}, {' '.join(details)})"
+
+    return f"{port} (USB {identity['address']})"
+
+def resolve_camera_port(camera_input):
+    if not camera_input:
+        return None
+
+    camera_input = camera_input.strip()
+    if camera_input.startswith("/dev/video"):
+        return camera_input
+
+    normalized_address = _normalize_camera_address(camera_input)
+    if not normalized_address:
+        return camera_input
+
+    for port in find_camera_candidates():
+        identity = _get_camera_usb_identity(port)
+        if identity and identity.get("address") == normalized_address:
+            return port
+
+    return camera_input
+
 def prompt_for_camera_port(saved_port=None):
     candidates = find_camera_candidates()
     if candidates:
@@ -107,6 +196,34 @@ def prompt_for_camera_port(saved_port=None):
         print("Порт камеры обязателен.")
 
 # Загружаем глобальный конфиг, чтобы к нему был доступ из любых функций
+# Override the prompt so camera address can be changed every start and can
+# be entered either as /dev/videoX or as a USB address like 001:010.
+def prompt_for_camera_port(saved_port=None):
+    candidates = find_camera_candidates()
+    if candidates:
+        print("\nAvailable camera devices:")
+        for port in candidates:
+            print(f" - {_format_camera_label(port)}")
+
+    while True:
+        prompt = "Enter camera port or USB address (example 001:010)"
+        if saved_port:
+            prompt += f" [Enter for {saved_port}]"
+        prompt += ": "
+
+        camera_input = input(prompt).strip()
+        if not camera_input and saved_port:
+            camera_input = saved_port
+
+        if not camera_input:
+            print("Camera port is required.")
+            continue
+
+        resolved_port = resolve_camera_port(camera_input)
+        if resolved_port != camera_input:
+            print(f"Resolved {camera_input} -> {resolved_port}")
+        return resolved_port
+
 global_config = load_config()
 
 # Инициализация I2C шины и PCA9685
