@@ -643,9 +643,9 @@ def calibrate_bucket_wall(config):
         save_config(config)
     manual_speed = int(config.get("bucket_wall_manual_speed", 1400))
     if "bucket_wall_manual_calibration_pulse_sec" not in config:
-        config["bucket_wall_manual_calibration_pulse_sec"] = 1.5
+        config["bucket_wall_manual_calibration_pulse_sec"] = 0.5
         save_config(config)
-    manual_pulse_sec = float(config.get("bucket_wall_manual_calibration_pulse_sec", 1.5))
+    manual_pulse_sec = float(config.get("bucket_wall_manual_calibration_pulse_sec", 0.5))
     search_position = config.get("bucket_wall_search_pot")
     lower_position = config.get("bucket_wall_lower_pot")
 
