@@ -943,7 +943,7 @@ def get_lidar_distance(scan, target_angle_deg, cone_half_angle=5):
                 min_dist = r
     return min_dist
 
-def get_clearance(scan, target_angle_deg, robot_half_width=0.40): # Увеличили зазор с боков на 5см
+def get_clearance(scan, target_angle_deg, robot_half_width=0.42): # Увеличили зазор с боков еще на 2см
     """
     Вычисляет свободную дистанцию в направлении target_angle_deg,
     учитывая ширину робота (robot_half_width).
@@ -1023,7 +1023,7 @@ def autonomous_loop(driver, speed, detector=None):
     global current_mode, current_speed
     state = "FORWARD"
     
-    SAFE_DIST_FRONT = 0.65 # Увеличили дистанцию остановки перед стеной на 5см
+    SAFE_DIST_FRONT = 0.67 # Увеличили дистанцию остановки перед стеной еще на 2см
     
     try:
         while driver.running:
