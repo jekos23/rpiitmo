@@ -91,6 +91,17 @@ HTML_PAGE = """<!doctype html>
       background: rgba(255,255,255,0.08);
       white-space: nowrap;
     }
+    .hero-side {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+    .lang-switch {
+      min-width: 140px;
+      margin: 0;
+    }
     .grid {
       display: grid;
       grid-template-columns: 360px minmax(0, 1fr);
@@ -220,131 +231,137 @@ HTML_PAGE = """<!doctype html>
   <div class="wrap">
     <section class="hero">
       <div>
-        <h1>Robot Control Station</h1>
-        <p>Start the robot, watch the camera stream, and switch between autopilot and manual control from any device in your LAN.</p>
+        <h1 id="heroTitle">Robot Control Station</h1>
+        <p id="heroSubtitle">Start the robot, watch the camera stream, and switch between autopilot and manual control from any device in your LAN.</p>
       </div>
-      <div id="heroStatus" class="status-pill">Loading...</div>
+      <div class="hero-side">
+        <select id="languageSelect" class="lang-switch" onchange="setLanguage(this.value)">
+          <option value="ru">Русский</option>
+          <option value="en">English</option>
+        </select>
+        <div id="heroStatus" class="status-pill">Loading...</div>
+      </div>
     </section>
 
     <div class="grid">
       <section class="panel">
-        <h2>Launch Settings</h2>
-        <label for="lidar_port">LiDAR port</label>
+        <h2 id="launchSettingsTitle">Launch Settings</h2>
+        <label for="lidar_port" id="labelLidarPort">LiDAR port</label>
         <input id="lidar_port" />
 
-        <label for="arduino_port">Arduino port</label>
+        <label for="arduino_port" id="labelArduinoPort">Arduino port</label>
         <input id="arduino_port" />
 
-        <label for="camera_port">Camera port</label>
+        <label for="camera_port" id="labelCameraPort">Camera port</label>
         <input id="camera_port" />
 
-        <label for="camera_stream_port">Camera stream port</label>
+        <label for="camera_stream_port" id="labelCameraStreamPort">Camera stream port</label>
         <input id="camera_stream_port" type="number" />
 
-        <label for="run_mode">Run mode</label>
+        <label for="run_mode" id="labelRunMode">Run mode</label>
         <select id="run_mode">
-          <option value="2">Autopilot</option>
-          <option value="1">Manual</option>
+          <option value="2" id="optionAutopilot">Autopilot</option>
+          <option value="1" id="optionManual">Manual</option>
         </select>
 
-        <label for="auto_speed">Autopilot speed</label>
+        <label for="auto_speed" id="labelAutoSpeed">Autopilot speed</label>
         <input id="auto_speed" type="number" min="0" max="4095" />
 
-        <label for="manual_speed">Manual speed</label>
+        <label for="manual_speed" id="labelManualSpeed">Manual speed</label>
         <input id="manual_speed" type="number" min="0" max="4095" />
 
-        <label for="yolo_choice">YOLO source</label>
+        <label for="yolo_choice" id="labelYoloChoice">YOLO source</label>
         <select id="yolo_choice">
-          <option value="1">Phone / PC detector over Wi-Fi</option>
-          <option value="2">Local model on Raspberry Pi</option>
-          <option value="3">Disabled</option>
+          <option value="1" id="optionYoloPhone">Phone / PC detector over Wi-Fi</option>
+          <option value="2" id="optionYoloLocal">Local model on Raspberry Pi</option>
+          <option value="3" id="optionDisabledA">Disabled</option>
         </select>
 
-        <label for="route_source_mode">Route source</label>
+        <label for="route_source_mode" id="labelRouteSource">Route source</label>
         <select id="route_source_mode">
-          <option value="none">Disabled</option>
-          <option value="slam">LiDAR SLAM route</option>
-          <option value="gps">Phone GPS / indoor positioning</option>
+          <option value="none" id="optionDisabledB">Disabled</option>
+          <option value="slam" id="optionRouteSlam">LiDAR SLAM route</option>
+          <option value="gps" id="optionRouteGps">Phone GPS / indoor positioning</option>
         </select>
 
-        <label for="route_corridor_m">Route corridor (meters)</label>
+        <label for="route_corridor_m" id="labelRouteCorridor">Route corridor (meters)</label>
         <input id="route_corridor_m" type="number" min="0.5" max="10" step="0.1" />
 
-        <label for="slam_route_record_step_m">SLAM point step (meters)</label>
+        <label for="slam_route_record_step_m" id="labelSlamStep">SLAM point step (meters)</label>
         <input id="slam_route_record_step_m" type="number" min="0.1" max="2" step="0.05" />
 
-        <label for="selected_model_name">Local model folder name</label>
+        <label for="selected_model_name" id="labelModelName">Local model folder name</label>
         <input id="selected_model_name" placeholder="optional" />
 
         <div class="button-row">
-          <button class="secondary" onclick="saveConfig()">Save config</button>
-          <button onclick="startRobot()">Start robot</button>
+          <button class="secondary" onclick="saveConfig()" id="buttonSaveConfig">Save config</button>
+          <button onclick="startRobot()" id="buttonStartRobot">Start robot</button>
         </div>
         <div class="button-row">
-          <button class="warn" onclick="prepareBucket()">Prepare bucket</button>
-          <button class="danger" onclick="stopRobot()">Stop robot</button>
+          <button class="warn" onclick="prepareBucket()" id="buttonPrepareBucket">Prepare bucket</button>
+          <button class="danger" onclick="stopRobot()" id="buttonStopRobot">Stop robot</button>
         </div>
 
         <div class="stat-list">
-          <div class="stat-item"><span>Robot state</span><strong id="statRunning">--</strong></div>
-          <div class="stat-item"><span>Mode</span><strong id="statMode">--</strong></div>
-          <div class="stat-item"><span>Camera stream</span><strong id="statVideo">--</strong></div>
-          <div class="stat-item"><span>Trash detector</span><strong id="statTrash">--</strong></div>
-          <div class="stat-item"><span>Bucket Arduino</span><strong id="statArduino">--</strong></div>
-          <div class="stat-item"><span>Active model</span><strong id="statModel">--</strong></div>
-          <div class="stat-item"><span>Route source</span><strong id="statRouteSource">--</strong></div>
-          <div class="stat-item"><span>Route status</span><strong id="statRoute">--</strong></div>
+          <div class="stat-item"><span id="labelStatRunning">Robot state</span><strong id="statRunning">--</strong></div>
+          <div class="stat-item"><span id="labelStatMode">Mode</span><strong id="statMode">--</strong></div>
+          <div class="stat-item"><span id="labelStatVideo">Camera stream</span><strong id="statVideo">--</strong></div>
+          <div class="stat-item"><span id="labelStatTrash">Trash detector</span><strong id="statTrash">--</strong></div>
+          <div class="stat-item"><span id="labelStatArduino">Bucket Arduino</span><strong id="statArduino">--</strong></div>
+          <div class="stat-item"><span id="labelStatModel">Active model</span><strong id="statModel">--</strong></div>
+          <div class="stat-item"><span id="labelStatRouteSource">Route source</span><strong id="statRouteSource">--</strong></div>
+          <div class="stat-item"><span id="labelStatRoute">Route status</span><strong id="statRoute">--</strong></div>
         </div>
       </section>
 
       <section class="panel">
         <div class="split">
           <div>
-            <h2>Live Video</h2>
+            <h2 id="liveVideoTitle">Live Video</h2>
             <img id="videoFrame" class="video" alt="video stream" />
           </div>
           <div>
-            <h2>Manual Drive</h2>
+            <h2 id="manualDriveTitle">Manual Drive</h2>
             <div class="manual-grid">
               <button class="blank">.</button>
-              <button class="dark" onclick="drive('forward')">Forward</button>
+              <button class="dark" onclick="drive('forward')" id="buttonForward">Forward</button>
               <button class="blank">.</button>
-              <button class="dark" onclick="drive('left')">Left</button>
-              <button class="danger" onclick="drive('stop')">STOP</button>
-              <button class="dark" onclick="drive('right')">Right</button>
+              <button class="dark" onclick="drive('left')" id="buttonLeft">Left</button>
+              <button class="danger" onclick="drive('stop')" id="buttonStop">STOP</button>
+              <button class="dark" onclick="drive('right')" id="buttonRight">Right</button>
               <button class="blank">.</button>
-              <button class="dark" onclick="drive('backward')">Backward</button>
+              <button class="dark" onclick="drive('backward')" id="buttonBackward">Backward</button>
               <button class="blank">.</button>
             </div>
 
-            <h3 style="margin-top:18px;">Bucket Control</h3>
+            <h3 style="margin-top:18px;" id="bucketControlTitle">Bucket Control</h3>
             <div class="button-row">
-              <button class="dark" onclick="bucket('wall_down')">Wall down</button>
-              <button class="dark" onclick="bucket('wall_up')">Wall up</button>
+              <button class="dark" onclick="bucket('wall_down')" id="buttonWallDown">Wall down</button>
+              <button class="dark" onclick="bucket('wall_up')" id="buttonWallUp">Wall up</button>
             </div>
             <div class="button-row">
               <button class="dark" onclick="bucket('scoop_down')">Scoop 90°</button>
               <button class="dark" onclick="bucket('scoop_up')">Scoop 0°</button>
             </div>
             <div class="button-row">
-              <button class="dark" onclick="bucket('bucket_test')">Timed test</button>
-              <button onclick="bucket('collect')">Collect cycle</button>
+              <button class="dark" onclick="bucket('bucket_test')" id="buttonTimedTest">Timed test</button>
+              <button onclick="bucket('collect')" id="buttonCollect">Collect cycle</button>
             </div>
 
-            <h3 style="margin-top:18px;">SLAM Route</h3>
+            <h3 style="margin-top:18px;" id="slamRouteTitle">SLAM Route</h3>
             <div class="button-row">
-              <button class="dark" onclick="slamRoute('start_record')">Record route</button>
-              <button class="dark" onclick="slamRoute('stop_record')">Stop record</button>
+              <button class="dark" onclick="slamRoute('start_record')" id="buttonRecordRoute">Record route</button>
+              <button class="dark" onclick="slamRoute('stop_record')" id="buttonStopRecord">Stop record</button>
             </div>
             <div class="button-row">
-              <button class="warn" onclick="slamRoute('clear')">Clear route</button>
-              <button class="secondary" onclick="refreshStatus()">Refresh</button>
+              <button class="warn" onclick="slamRoute('clear')" id="buttonClearRoute">Clear route</button>
+              <button class="secondary" onclick="refreshStatus()" id="buttonRefresh">Refresh</button>
             </div>
           </div>
         </div>
 
         <div class="full" style="margin-top:18px;">
-          <h3>System Log</h3>
+          <h3 id="systemLogTitle">System Log</h3>
           <div id="logBox" class="log">Waiting for status...</div>
         </div>
       </section>
@@ -353,6 +370,284 @@ HTML_PAGE = """<!doctype html>
 
   <script>
     let lastStatus = null;
+    const translations = {
+      ru: {
+        hero_title: 'Станция управления роботом',
+        hero_subtitle: 'Запускай робота, смотри видеопоток и переключайся между автопилотом и ручным управлением из локальной сети.',
+        launch_settings: 'Параметры запуска',
+        lidar_port: 'Порт LiDAR',
+        arduino_port: 'Порт Arduino',
+        camera_port: 'Порт камеры',
+        camera_stream_port: 'Порт видеопотока',
+        run_mode: 'Режим работы',
+        autopilot: 'Автопилот',
+        manual: 'Ручной',
+        autopilot_speed: 'Скорость автопилота',
+        manual_speed: 'Скорость ручного режима',
+        yolo_source: 'Источник YOLO',
+        yolo_phone: 'Телефон / ПК по Wi-Fi',
+        yolo_local: 'Локальная модель на Raspberry Pi',
+        disabled: 'Отключено',
+        route_source: 'Источник маршрута',
+        route_slam: 'Маршрут LiDAR SLAM',
+        route_gps: 'Телефонный GPS / indoor positioning',
+        route_corridor: 'Коридор маршрута (метры)',
+        slam_step: 'Шаг точек SLAM (метры)',
+        model_folder: 'Папка локальной модели',
+        optional: 'необязательно',
+        save_config: 'Сохранить конфиг',
+        start_robot: 'Запустить робота',
+        prepare_bucket: 'Подготовить ковш',
+        stop_robot: 'Остановить робота',
+        robot_state: 'Состояние робота',
+        mode: 'Режим',
+        camera_stream: 'Видеопоток',
+        trash_detector: 'Детектор мусора',
+        bucket_arduino: 'Arduino ковша',
+        active_model: 'Активная модель',
+        route_status: 'Статус маршрута',
+        live_video: 'Живое видео',
+        manual_drive: 'Ручное движение',
+        forward: 'Вперёд',
+        left: 'Влево',
+        stop: 'СТОП',
+        right: 'Вправо',
+        backward: 'Назад',
+        bucket_control: 'Управление ковшом',
+        wall_down: 'Стенка вниз',
+        wall_up: 'Стенка вверх',
+        scoop_down: 'Совок 90°',
+        scoop_up: 'Совок 0°',
+        timed_test: 'Тест по времени',
+        collect_cycle: 'Цикл сбора',
+        slam_route: 'SLAM-маршрут',
+        record_route: 'Записать маршрут',
+        stop_record: 'Остановить запись',
+        clear_route: 'Очистить маршрут',
+        refresh: 'Обновить',
+        system_log: 'Системный журнал',
+        loading: 'Загрузка...',
+        no_messages: 'Пока нет сообщений.',
+        running: 'Работает',
+        stopped: 'Остановлен',
+        online: 'онлайн',
+        offline: 'офлайн',
+        connected: 'подключено',
+        disconnected: 'отключено',
+        mode_idle: 'Остановлен',
+        mode_manual: 'Ручное управление',
+        mode_autopilot: 'Автопилот',
+        phone_none: 'телефон / нет',
+        points_short: 'точек',
+        meters_short: 'м',
+        recording: 'запись',
+        phone_route_active: 'маршрут с телефона активен',
+        waiting_phone_route: 'ожидание маршрута с телефона',
+        inside_corridor: 'внутри коридора',
+        outside_corridor: 'вне коридора',
+        error_prefix: 'Ошибка',
+        stream_prefix: 'Поток',
+        detector_prefix: 'Детектор',
+        route_prefix: 'Маршрут',
+        trash_waiting: 'активен, ожидание',
+        trash_disabled: 'отключен',
+        trash_at: 'мусор под углом',
+      },
+      en: {
+        hero_title: 'Robot Control Station',
+        hero_subtitle: 'Start the robot, watch the camera stream, and switch between autopilot and manual control from any device in your LAN.',
+        launch_settings: 'Launch Settings',
+        lidar_port: 'LiDAR port',
+        arduino_port: 'Arduino port',
+        camera_port: 'Camera port',
+        camera_stream_port: 'Camera stream port',
+        run_mode: 'Run mode',
+        autopilot: 'Autopilot',
+        manual: 'Manual',
+        autopilot_speed: 'Autopilot speed',
+        manual_speed: 'Manual speed',
+        yolo_source: 'YOLO source',
+        yolo_phone: 'Phone / PC detector over Wi-Fi',
+        yolo_local: 'Local model on Raspberry Pi',
+        disabled: 'Disabled',
+        route_source: 'Route source',
+        route_slam: 'LiDAR SLAM route',
+        route_gps: 'Phone GPS / indoor positioning',
+        route_corridor: 'Route corridor (meters)',
+        slam_step: 'SLAM point step (meters)',
+        model_folder: 'Local model folder name',
+        optional: 'optional',
+        save_config: 'Save config',
+        start_robot: 'Start robot',
+        prepare_bucket: 'Prepare bucket',
+        stop_robot: 'Stop robot',
+        robot_state: 'Robot state',
+        mode: 'Mode',
+        camera_stream: 'Camera stream',
+        trash_detector: 'Trash detector',
+        bucket_arduino: 'Bucket Arduino',
+        active_model: 'Active model',
+        route_status: 'Route status',
+        live_video: 'Live Video',
+        manual_drive: 'Manual Drive',
+        forward: 'Forward',
+        left: 'Left',
+        stop: 'STOP',
+        right: 'Right',
+        backward: 'Backward',
+        bucket_control: 'Bucket Control',
+        wall_down: 'Wall down',
+        wall_up: 'Wall up',
+        scoop_down: 'Scoop 90°',
+        scoop_up: 'Scoop 0°',
+        timed_test: 'Timed test',
+        collect_cycle: 'Collect cycle',
+        slam_route: 'SLAM Route',
+        record_route: 'Record route',
+        stop_record: 'Stop record',
+        clear_route: 'Clear route',
+        refresh: 'Refresh',
+        system_log: 'System Log',
+        loading: 'Loading...',
+        no_messages: 'No messages yet.',
+        running: 'Running',
+        stopped: 'Stopped',
+        online: 'online',
+        offline: 'offline',
+        connected: 'connected',
+        disconnected: 'disconnected',
+        mode_idle: 'Stopped',
+        mode_manual: 'Manual web control',
+        mode_autopilot: 'Autopilot',
+        phone_none: 'phone / none',
+        points_short: 'pts',
+        meters_short: 'm',
+        recording: 'recording',
+        phone_route_active: 'phone route active',
+        waiting_phone_route: 'waiting for phone route',
+        inside_corridor: 'inside corridor',
+        outside_corridor: 'outside corridor',
+        error_prefix: 'Error',
+        stream_prefix: 'Stream',
+        detector_prefix: 'Detector',
+        route_prefix: 'Route',
+        trash_waiting: 'active, waiting',
+        trash_disabled: 'disabled',
+        trash_at: 'trash at',
+      },
+    };
+    let currentLanguage = localStorage.getItem('robot_ui_language') || 'ru';
+
+    function t(key) {
+      return (translations[currentLanguage] && translations[currentLanguage][key])
+        || translations.en[key]
+        || key;
+    }
+
+    function translateMode(mode) {
+      return {
+        idle: t('mode_idle'),
+        manual: t('mode_manual'),
+        autopilot: t('mode_autopilot'),
+      }[mode] || mode || '--';
+    }
+
+    function translateTrashSummary(summary) {
+      if (!summary || summary === 'disabled') return t('trash_disabled');
+      if (summary === 'active, waiting') return t('trash_waiting');
+      if (summary.startsWith('trash at ')) {
+        return summary.replace('trash at ', `${t('trash_at')} `);
+      }
+      return summary;
+    }
+
+    function updateStaticTexts() {
+      const textMap = {
+        heroTitle: 'hero_title',
+        heroSubtitle: 'hero_subtitle',
+        launchSettingsTitle: 'launch_settings',
+        labelLidarPort: 'lidar_port',
+        labelArduinoPort: 'arduino_port',
+        labelCameraPort: 'camera_port',
+        labelCameraStreamPort: 'camera_stream_port',
+        labelRunMode: 'run_mode',
+        optionAutopilot: 'autopilot',
+        optionManual: 'manual',
+        labelAutoSpeed: 'autopilot_speed',
+        labelManualSpeed: 'manual_speed',
+        labelYoloChoice: 'yolo_source',
+        optionYoloPhone: 'yolo_phone',
+        optionYoloLocal: 'yolo_local',
+        optionDisabledA: 'disabled',
+        labelRouteSource: 'route_source',
+        optionDisabledB: 'disabled',
+        optionRouteSlam: 'route_slam',
+        optionRouteGps: 'route_gps',
+        labelRouteCorridor: 'route_corridor',
+        labelSlamStep: 'slam_step',
+        labelModelName: 'model_folder',
+        buttonSaveConfig: 'save_config',
+        buttonStartRobot: 'start_robot',
+        buttonPrepareBucket: 'prepare_bucket',
+        buttonStopRobot: 'stop_robot',
+        labelStatRunning: 'robot_state',
+        labelStatMode: 'mode',
+        labelStatVideo: 'camera_stream',
+        labelStatTrash: 'trash_detector',
+        labelStatArduino: 'bucket_arduino',
+        labelStatModel: 'active_model',
+        labelStatRouteSource: 'route_source',
+        labelStatRoute: 'route_status',
+        liveVideoTitle: 'live_video',
+        manualDriveTitle: 'manual_drive',
+        buttonForward: 'forward',
+        buttonLeft: 'left',
+        buttonStop: 'stop',
+        buttonRight: 'right',
+        buttonBackward: 'backward',
+        bucketControlTitle: 'bucket_control',
+        buttonWallDown: 'wall_down',
+        buttonWallUp: 'wall_up',
+        buttonTimedTest: 'timed_test',
+        buttonCollect: 'collect_cycle',
+        slamRouteTitle: 'slam_route',
+        buttonRecordRoute: 'record_route',
+        buttonStopRecord: 'stop_record',
+        buttonClearRoute: 'clear_route',
+        buttonRefresh: 'refresh',
+        systemLogTitle: 'system_log',
+      };
+
+      Object.entries(textMap).forEach(([id, key]) => {
+        const element = document.getElementById(id);
+        if (element) {
+          element.textContent = t(key);
+        }
+      });
+
+      document.getElementById('selected_model_name').placeholder = t('optional');
+      const scoopDownButton = document.querySelector('[onclick="bucket(\'scoop_down\')"]');
+      const scoopUpButton = document.querySelector('[onclick="bucket(\'scoop_up\')"]');
+      if (scoopDownButton) scoopDownButton.textContent = t('scoop_down');
+      if (scoopUpButton) scoopUpButton.textContent = t('scoop_up');
+    }
+
+    function setLanguage(lang) {
+      currentLanguage = translations[lang] ? lang : 'ru';
+      localStorage.setItem('robot_ui_language', currentLanguage);
+      document.documentElement.lang = currentLanguage;
+      const select = document.getElementById('languageSelect');
+      if (select) {
+        select.value = currentLanguage;
+      }
+      updateStaticTexts();
+      if (lastStatus) {
+        updateStatusUi(lastStatus);
+      } else {
+        document.getElementById('heroStatus').textContent = t('loading');
+        setLog('');
+      }
+    }
 
     function formPayload() {
       return {
@@ -388,57 +683,57 @@ HTML_PAGE = """<!doctype html>
     }
 
     function setLog(text) {
-      document.getElementById('logBox').textContent = text || 'No messages yet.';
+      document.getElementById('logBox').textContent = text || t('no_messages');
     }
 
     function updateStatusUi(status) {
       lastStatus = status;
       applyConfig(status.config);
       const routeSourceLabels = {
-        none: 'disabled',
-        slam: 'LiDAR SLAM',
-        gps: 'Phone GPS/UWB',
+        none: t('disabled'),
+        slam: t('route_slam'),
+        gps: t('route_gps'),
       };
-      let routeSummary = 'disabled';
+      let routeSummary = t('disabled');
       if (status.route_source_mode === 'slam') {
-        routeSummary = `${status.slam_route_points || 0} pts`;
+        routeSummary = `${status.slam_route_points || 0} ${t('points_short')}`;
         if (typeof status.route_distance_m === 'number') {
-          routeSummary += ` | ${status.route_distance_m.toFixed(2)} m`;
+          routeSummary += ` | ${status.route_distance_m.toFixed(2)} ${t('meters_short')}`;
         }
         if (status.slam_route_recording) {
-          routeSummary += ' | recording';
+          routeSummary += ` | ${t('recording')}`;
         }
       } else if (status.route_source_mode === 'gps') {
-        routeSummary = status.route_fresh ? 'phone route active' : 'waiting for phone route';
+        routeSummary = status.route_fresh ? t('phone_route_active') : t('waiting_phone_route');
         if (typeof status.route_distance_m === 'number') {
-          routeSummary += ` | ${status.route_distance_m.toFixed(2)} m`;
+          routeSummary += ` | ${status.route_distance_m.toFixed(2)} ${t('meters_short')}`;
         }
         if (status.route_enabled) {
-          routeSummary += status.route_within_corridor ? ' | inside corridor' : ' | outside corridor';
+          routeSummary += status.route_within_corridor ? ` | ${t('inside_corridor')}` : ` | ${t('outside_corridor')}`;
         }
       }
 
       document.getElementById('heroStatus').textContent = status.running
-        ? `Running: ${status.mode_label}`
-        : 'Stopped';
+        ? `${t('running')}: ${translateMode(status.mode)}`
+        : t('stopped');
       document.getElementById('heroStatus').style.background = status.running
         ? 'rgba(61,220,151,0.18)'
         : 'rgba(255,107,107,0.15)';
-      document.getElementById('statRunning').textContent = status.running ? 'online' : 'offline';
-      document.getElementById('statMode').textContent = status.mode_label || '--';
-      document.getElementById('statVideo').textContent = status.video_stream_active ? status.stream_url : 'stopped';
-      document.getElementById('statTrash').textContent = status.trash_summary || 'disabled';
-      document.getElementById('statArduino').textContent = status.bucket_arduino_connected ? 'connected' : 'disconnected';
-      document.getElementById('statModel').textContent = status.selected_model_name || 'phone / none';
+      document.getElementById('statRunning').textContent = status.running ? t('online') : t('offline');
+      document.getElementById('statMode').textContent = translateMode(status.mode);
+      document.getElementById('statVideo').textContent = status.video_stream_active ? status.stream_url : t('stopped');
+      document.getElementById('statTrash').textContent = translateTrashSummary(status.trash_summary);
+      document.getElementById('statArduino').textContent = status.bucket_arduino_connected ? t('connected') : t('disconnected');
+      document.getElementById('statModel').textContent = status.selected_model_name || t('phone_none');
       document.getElementById('statRouteSource').textContent = routeSourceLabels[status.route_source_mode] || status.route_source_mode || 'disabled';
       document.getElementById('statRoute').textContent = routeSummary;
 
       const logLines = [
         status.message || '',
-        status.error ? `Error: ${status.error}` : '',
-        status.stream_url ? `Stream: ${status.stream_url}` : '',
-        status.detector_debug ? `Detector: ${status.detector_debug}` : '',
-        status.route_debug ? `Route: ${status.route_debug}` : '',
+        status.error ? `${t('error_prefix')}: ${status.error}` : '',
+        status.stream_url ? `${t('stream_prefix')}: ${status.stream_url}` : '',
+        status.detector_debug ? `${t('detector_prefix')}: ${status.detector_debug}` : '',
+        status.route_debug ? `${t('route_prefix')}: ${status.route_debug}` : '',
       ].filter(Boolean);
       setLog(logLines.join('\\n'));
 
@@ -499,6 +794,7 @@ HTML_PAGE = """<!doctype html>
       updateStatusUi(data);
     }
 
+    setLanguage(currentLanguage);
     refreshStatus();
     setInterval(refreshStatus, 1200);
   </script>
