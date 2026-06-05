@@ -5,7 +5,13 @@ import time
 
 
 class RemoteTrashListener:
-    def __init__(self, port=5005, on_servo_command=None, on_motor_command=None, allow_text_commands=False):
+    def __init__(
+        self,
+        port=5005,
+        on_servo_command=None,
+        on_motor_command=None,
+        allow_text_commands=False,
+    ):
         self.port = port
         self.running = False
         self.on_servo_command = on_servo_command
@@ -14,6 +20,7 @@ class RemoteTrashListener:
 
         self.trash_detected = False
         self.trash_angle = 0.0
+        self.trash_in_collection_zone = False
 
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.bind(("0.0.0.0", self.port))
@@ -23,7 +30,9 @@ class RemoteTrashListener:
         self.running = True
         self.thread = threading.Thread(target=self._listen_loop, daemon=True)
         self.thread.start()
-        print(f"[YOLO-REMOTE] Слушаю команды от телефона по UDP на порту {self.port}...")
+        print(
+            f"[YOLO-REMOTE] Listening for phone commands on UDP port {self.port}..."
+        )
 
     def stop(self):
         self.running = False
@@ -54,10 +63,10 @@ class RemoteTrashListener:
         return False
 
     def _listen_loop(self):
-        last_receive_time = 0
+        last_receive_time = 0.0
         while self.running:
             try:
-                data, addr = self.sock.recvfrom(1024)
+                data, _ = self.sock.recvfrom(1024)
                 message_text = data.decode("utf-8", errors="ignore").strip()
                 if not message_text:
                     continue
@@ -67,15 +76,23 @@ class RemoteTrashListener:
                     continue
 
                 message = json.loads(message_text)
-                self.trash_detected = message.get("trash_detected", False)
-                self.trash_angle = message.get("angle", 0.0)
+                self.trash_detected = bool(message.get("trash_detected", False))
+                self.trash_angle = float(message.get("angle", 0.0))
+                self.trash_in_collection_zone = bool(
+                    message.get("in_collection_zone", False)
+                )
                 last_receive_time = time.time()
 
                 if self.trash_detected:
-                    print(f"[YOLO-REMOTE] Получен сигнал мусора! Угол: {self.trash_angle:.1f}°")
+                    zone_suffix = " [ZONE]" if self.trash_in_collection_zone else ""
+                    print(
+                        "[YOLO-REMOTE] Trash detected! "
+                        f"Angle: {self.trash_angle:.1f} deg{zone_suffix}"
+                    )
 
             except socket.timeout:
                 if time.time() - last_receive_time > 2.0:
                     self.trash_detected = False
+                    self.trash_in_collection_zone = False
             except Exception:
                 pass

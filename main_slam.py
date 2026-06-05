@@ -62,7 +62,7 @@ def prompt_for_serial_port(label, saved_port=None, forbidden_ports=None):
     if candidates:
         print(f"\nДоступные порты для {label}:")
         for port in candidates:
-            print(f" - {_format_camera_label(port)}")
+            print(f" - {port}")
 
     while True:
         prompt = f"Введите порт {label}"
@@ -256,6 +256,7 @@ last_bucket_pot_value = None
 bucket_channel_warning_shown = False
 video_streamer_process = None
 bucket_wall_increase_direction_sign = None
+bucket_motor_current_speed = 0
 
 current_mode = 0
 current_speed = 0
@@ -386,7 +387,7 @@ def init_bucket_arduino(config):
         return False
 
 def _bucket_arduino_reader_loop():
-    global last_bucket_pot_value, bucket_arduino_running
+    global bucket_arduino_running
 
     while bucket_arduino_running and bucket_arduino:
         try:
@@ -394,10 +395,7 @@ def _bucket_arduino_reader_loop():
             if not line:
                 continue
 
-            payload = line[4:] if line.startswith("POT:") else line
-            if payload.isdigit():
-                last_bucket_pot_value = int(payload)
-            elif line.startswith("OK:") or line.startswith("ERR:"):
+            if line.startswith("OK:") or line.startswith("ERR:"):
                 print(f"[ARDUINO] {line}")
         except Exception as e:
             if bucket_arduino_running:
@@ -447,6 +445,7 @@ def set_servo_bucket(down=True, wait=True):
     return _move_bucket_servo_to_angle(target_angle, label, wait=wait)
 
 def set_bucket_motor(speed):
+    global bucket_motor_current_speed
     if not pca:
         print("[КОВШ] PCA9685 недоступна, мотор ковша не управляется.")
         return False
@@ -466,6 +465,7 @@ def set_bucket_motor(speed):
     else:
         pca.channels[fwd_channel].duty_cycle = 0
         pca.channels[rev_channel].duty_cycle = 0
+    bucket_motor_current_speed = speed
     return True
 
 def legacy_pulse_bucket_motor_unused(speed, duration_sec=None):
@@ -534,16 +534,50 @@ def get_bucket_wall_position(wait_timeout_sec=1.0):
         time.sleep(0.05)
     return int(last_bucket_pot_value) if last_bucket_pot_value is not None else None
 
+def _ramp_bucket_motor(target_speed, ramp_sec=None, steps=None):
+    global bucket_motor_current_speed
+
+    ramp_sec = float(
+        ramp_sec if ramp_sec is not None else global_config.get("bucket_motor_ramp_sec", 0.22)
+    )
+    steps = max(
+        1,
+        int(steps if steps is not None else global_config.get("bucket_motor_ramp_steps", 6)),
+    )
+    start_speed = int(bucket_motor_current_speed)
+    target_speed = int(max(-4095, min(4095, target_speed)))
+
+    if ramp_sec <= 0 or steps <= 1 or start_speed == target_speed:
+        set_bucket_motor(target_speed)
+        return
+
+    step_delay = ramp_sec / steps
+    for step_index in range(1, steps + 1):
+        ratio = step_index / steps
+        interpolated = int(round(start_speed + (target_speed - start_speed) * ratio))
+        set_bucket_motor(interpolated)
+        time.sleep(step_delay)
+
+
 def pulse_bucket_motor(speed, duration_sec=None):
-    duration_sec = float(duration_sec if duration_sec is not None else global_config.get("bucket_motor_pulse_sec", 0.18))
-    before = get_bucket_wall_position(wait_timeout_sec=0.2)
+    duration_sec = float(
+        duration_sec if duration_sec is not None else global_config.get("bucket_motor_pulse_sec", 0.18)
+    )
+    ramp_sec = float(global_config.get("bucket_motor_ramp_sec", 0.22))
+    settle_sec = float(global_config.get("bucket_motor_settle_after_pulse_sec", 0.12))
+    before = None
+    after = None
+
     try:
-        set_bucket_motor(speed)
-        time.sleep(duration_sec)
+        _ramp_bucket_motor(speed, ramp_sec=ramp_sec)
+        hold_sec = max(0.0, duration_sec - ramp_sec)
+        if hold_sec > 0:
+            time.sleep(hold_sec)
     finally:
-        set_bucket_motor(0)
-    time.sleep(float(global_config.get("bucket_motor_settle_after_pulse_sec", 0.12)))
-    after = get_bucket_wall_position(wait_timeout_sec=0.5)
+        _ramp_bucket_motor(0, ramp_sec=ramp_sec)
+
+    if settle_sec > 0:
+        time.sleep(settle_sec)
     return before, after
 
 def _remember_bucket_wall_direction(speed, before, after):
@@ -785,7 +819,7 @@ def _run_bucket_wall_motion(direction, label, duration_sec=None):
     duration_sec = float(duration_sec if duration_sec is not None else _get_bucket_wall_move_duration())
     speed = _get_bucket_wall_drive_speed()
     signed_speed = speed if direction > 0 else -speed
-    print(f"[BUCKET] {label}: {duration_sec:.1f}s at full power.")
+    print(f"[BUCKET] {label}: {duration_sec:.1f}s with smooth ramp.")
     pulse_bucket_motor(signed_speed, duration_sec)
     return True
 
@@ -820,6 +854,8 @@ def calibrate_bucket_wall(config):
 
     config["bucket_wall_manual_speed"] = 4095
     config["bucket_wall_move_duration_sec"] = 2.0
+    config["bucket_motor_ramp_sec"] = 0.28
+    config["bucket_motor_ramp_steps"] = 7
 
     saved_state = str(config.get("bucket_wall_current_state", "search")).strip().lower()
     if saved_state not in {"search", "lower"}:
@@ -1036,11 +1072,15 @@ def autonomous_loop(driver, speed, detector=None):
                 
             if state == "TRASH_APPROACH":
                 dist = get_lidar_distance(scan, detector.trash_angle)
+                target_in_zone = bool(getattr(detector, "trash_in_collection_zone", False))
                 print(f"[АВТОПИЛОТ] Сближение... Дистанция по лидару: {dist:.2f}м, Угол: {detector.trash_angle:.1f}°")
                 
                 # Если мусор слишком близко или потерян из виду вблизи (слепая зона)
-                if dist < 0.15 or (not detector.trash_detected and dist < 0.4):
+                if target_in_zone and dist < 0.40:
                     print("[АВТОПИЛОТ] Мусор в зоне захвата!")
+                    state = "TRASH_COLLECT"
+                elif not detector.trash_detected and dist < 0.25:
+                    print("[AUTO] Trash is very close, switching to blind collect.")
                     state = "TRASH_COLLECT"
                 elif not detector.trash_detected and dist >= 0.4:
                     print("[АВТОПИЛОТ] Ложное срабатывание или мусор утерян вдали. Возврат.")
@@ -1065,6 +1105,8 @@ def autonomous_loop(driver, speed, detector=None):
                 state = "FORWARD"
                 if detector:
                     detector.trash_detected = False
+                    if hasattr(detector, "trash_in_collection_zone"):
+                        detector.trash_in_collection_zone = False
                 continue
 
             # --- ЛОГИКА ИССЛЕДОВАТЕЛЯ С ЛИДАРОМ ---

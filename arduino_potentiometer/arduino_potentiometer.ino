@@ -1,20 +1,38 @@
 #include <Servo.h>
 
-const int potPin = A0;
 const int servoPin = 9;
 const int servoUpAngle = 0;
 const int servoDownAngle = 90;
-const unsigned long telemetryIntervalMs = 50;
+const int servoStepDegrees = 2;
+const unsigned long servoStepDelayMs = 18;
 
 Servo bucketServo;
 String serialBuffer = "";
-int potValue = 0;
-int currentServoAngle = servoUpAngle;
-unsigned long lastTelemetryAt = 0;
+int currentServoAngle = servoDownAngle;
 
 void moveServoTo(int angle) {
-  currentServoAngle = constrain(angle, 0, 180);
-  bucketServo.write(currentServoAngle);
+  const int targetAngle = constrain(angle, 0, 180);
+
+  if (targetAngle == currentServoAngle) {
+    bucketServo.write(currentServoAngle);
+    Serial.print("OK:SERVO:");
+    Serial.println(currentServoAngle);
+    return;
+  }
+
+  const int direction = targetAngle > currentServoAngle ? 1 : -1;
+  while (currentServoAngle != targetAngle) {
+    currentServoAngle += direction * servoStepDegrees;
+
+    if ((direction > 0 && currentServoAngle > targetAngle) ||
+        (direction < 0 && currentServoAngle < targetAngle)) {
+      currentServoAngle = targetAngle;
+    }
+
+    bucketServo.write(currentServoAngle);
+    delay(servoStepDelayMs);
+  }
+
   Serial.print("OK:SERVO:");
   Serial.println(currentServoAngle);
 }
@@ -68,24 +86,14 @@ void readSerialCommands() {
   }
 }
 
-void sendPotentiometerTelemetry() {
-  unsigned long now = millis();
-  if (now - lastTelemetryAt < telemetryIntervalMs) {
-    return;
-  }
-
-  lastTelemetryAt = now;
-  potValue = analogRead(potPin);
-  Serial.println(potValue);
-}
-
 void setup() {
   Serial.begin(9600);
   bucketServo.attach(servoPin);
-  moveServoTo(servoUpAngle);
+  bucketServo.write(currentServoAngle);
+  delay(150);
+  Serial.println("OK:READY");
 }
 
 void loop() {
   readSerialCommands();
-  sendPotentiometerTelemetry();
 }

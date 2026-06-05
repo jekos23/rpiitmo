@@ -79,7 +79,7 @@ def main():
         return
 
     config = load_config()
-    arduino_port = prompt_for_arduino_port(config.get("arduino_port", "/dev/ttyACM0"))
+    arduino_port = prompt_for_arduino_port(config.get("arduino_port", "/dev/ttyUSB0"))
     config["arduino_port"] = arduino_port
     save_config(config)
     baudrate = int(config.get("arduino_baudrate", 9600))
