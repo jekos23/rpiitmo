@@ -56,6 +56,19 @@ def _get_primary_ip_address() -> str:
     return "127.0.0.1"
 
 
+def _repair_mojibake_text(text: str) -> str:
+    if not text:
+        return text
+    try:
+        return text.encode("cp1251").decode("utf-8")
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        return text
+
+
+def _repair_mojibake_block(text: str) -> str:
+    return "".join(_repair_mojibake_text(line) for line in text.splitlines(keepends=True))
+
+
 class VkNotifier:
     def __init__(self) -> None:
         self.enabled = str(os.getenv("VK_ENABLED", "0")).strip().lower() not in {
@@ -70,12 +83,37 @@ class VkNotifier:
         self.timeout_sec = 6.0
         self._dedupe_times: Dict[str, float] = {}
         self._lock = threading.Lock()
+        self._last_status = "idle"
+        self._last_error = ""
+        self._last_response = ""
+        self._last_event_at = 0.0
 
     def is_configured(self) -> bool:
         return self.enabled and bool(self.access_token) and bool(self.peer_id)
 
+    def debug_status(self) -> str:
+        parts = ["enabled" if self.enabled else "disabled"]
+        if self.enabled:
+            parts.append("token=ok" if self.access_token else "token=missing")
+            if self.peer_id:
+                parts.append(f"target={self._target_debug_label()}")
+            else:
+                parts.append("target=missing")
+        if self._last_status != "idle":
+            parts.append(f"last={self._last_status}")
+        if self._last_error:
+            parts.append(f"error={self._last_error}")
+        elif self._last_response:
+            parts.append(f"response={self._last_response}")
+        return ", ".join(parts)
+
     def send(self, text: str, dedupe_key: Optional[str] = None, dedupe_window_sec: float = 15.0) -> bool:
-        if not text or not self.is_configured():
+        if not text:
+            self._remember_result("skipped", "empty message")
+            return False
+
+        if not self.is_configured():
+            self._remember_result("skipped", "not configured")
             return False
 
         if dedupe_key:
@@ -93,29 +131,75 @@ class VkNotifier:
         ).start()
         return True
 
-    def _send_blocking(self, text: str) -> None:
+    def send_now(self, text: str) -> bool:
+        return self._deliver(text)
+
+    def _target_debug_label(self) -> str:
         try:
+            peer_id = int(self.peer_id)
+        except (TypeError, ValueError):
+            return f"peer:{self.peer_id}"
+        if 0 < peer_id < 2_000_000_000:
+            return f"user:{peer_id}"
+        return f"peer:{peer_id}"
+
+    def _remember_result(self, status: str, details: str = "", response: str = "") -> None:
+        with self._lock:
+            self._last_status = status
+            self._last_error = details if status != "ok" else ""
+            self._last_response = response if status == "ok" else ""
+            self._last_event_at = time.time()
+
+    def _send_blocking(self, text: str) -> None:
+        self._deliver(text)
+
+    def _deliver(self, text: str) -> bool:
+        try:
+            text = _repair_mojibake_text(text)
             random_id = int(time.time() * 1000) & 0x7FFFFFFF
-            payload = urllib.parse.urlencode(
-                {
-                    "peer_id": self.peer_id,
-                    "message": text,
-                    "random_id": str(random_id),
-                    "access_token": self.access_token,
-                    "v": self.api_version,
-                }
-            ).encode("utf-8")
+            payload_data = {
+                "message": text,
+                "random_id": str(random_id),
+                "access_token": self.access_token,
+                "v": self.api_version,
+            }
+            try:
+                peer_id = int(self.peer_id)
+            except (TypeError, ValueError):
+                payload_data["peer_id"] = self.peer_id
+            else:
+                if 0 < peer_id < 2_000_000_000:
+                    payload_data["user_id"] = str(peer_id)
+                else:
+                    payload_data["peer_id"] = str(peer_id)
+
+            payload = urllib.parse.urlencode(payload_data).encode("utf-8")
             request_obj = urllib.request.Request(
                 "https://api.vk.com/method/messages.send",
                 data=payload,
                 method="POST",
+                headers={
+                    "Content-Type": "application/x-www-form-urlencoded; charset=utf-8",
+                    "Accept": "application/json",
+                },
             )
             with urllib.request.urlopen(request_obj, timeout=self.timeout_sec) as response:
                 response_body = response.read().decode("utf-8", errors="ignore")
-                if '"error"' in response_body:
+                response_json = json.loads(response_body)
+                error_info = response_json.get("error")
+                if error_info:
+                    error_text = f"{error_info.get('error_code')}: {error_info.get('error_msg')}"
+                    self._remember_result("error", error_text)
                     print(f"[VK] API returned an error: {response_body}")
+                    return False
+
+                response_data = response_json.get("response")
+                self._remember_result("ok", response=str(response_data))
+                return True
         except Exception as exc:
+            self._remember_result("error", str(exc))
             print(f"[VK] Failed to send message: {exc}")
+            return False
 
 
 def _build_local_urls(web_port: int, stream_port: int) -> Dict[str, str]:
@@ -130,7 +214,7 @@ def _build_local_urls(web_port: int, stream_port: int) -> Dict[str, str]:
 vk_notifier = VkNotifier()
 
 
-HTML_PAGE = """<!doctype html>
+HTML_PAGE = _repair_mojibake_block("""<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -454,7 +538,7 @@ HTML_PAGE = """<!doctype html>
             </div>
             <div class="button-row">
               <button class="warn" onclick="slamRoute('clear')" id="buttonClearRoute">Clear route</button>
-              <button class="secondary" onclick="refreshStatus()" id="buttonRefresh">Refresh</button>
+              <button class="secondary" onclick="testVk()" id="buttonTestVk">Test VK</button>
             </div>
           </div>
         </div>
@@ -523,7 +607,7 @@ HTML_PAGE = """<!doctype html>
         record_route: 'Записать маршрут',
         stop_record: 'Остановить запись',
         clear_route: 'Очистить маршрут',
-        refresh: 'Обновить',
+        test_vk: 'Проверить VK',
         system_log: 'Системный журнал',
         loading: 'Загрузка...',
         no_messages: 'Пока нет сообщений.',
@@ -605,7 +689,7 @@ HTML_PAGE = """<!doctype html>
         record_route: 'Record route',
         stop_record: 'Stop record',
         clear_route: 'Clear route',
-        refresh: 'Refresh',
+        test_vk: 'Test VK',
         system_log: 'System Log',
         loading: 'Loading...',
         no_messages: 'No messages yet.',
@@ -713,7 +797,7 @@ HTML_PAGE = """<!doctype html>
         buttonRecordRoute: 'record_route',
         buttonStopRecord: 'stop_record',
         buttonClearRoute: 'clear_route',
-        buttonRefresh: 'refresh',
+        buttonTestVk: 'test_vk',
         systemLogTitle: 'system_log',
       };
 
@@ -785,6 +869,13 @@ HTML_PAGE = """<!doctype html>
       document.getElementById('logBox').textContent = text || t('no_messages');
     }
 
+    function setFetchError(error) {
+      const details = (error && error.message) ? error.message : 'request failed';
+      document.getElementById('heroStatus').textContent = `${t('error_prefix')}: ${details}`;
+      document.getElementById('heroStatus').style.background = 'rgba(255,107,107,0.15)';
+      setLog(`${t('error_prefix')}: ${details}`);
+    }
+
     function updateStatusUi(status) {
       lastStatus = status;
       applyConfig(status.config);
@@ -833,6 +924,7 @@ HTML_PAGE = """<!doctype html>
         status.stream_url ? `${t('stream_prefix')}: ${status.stream_url}` : '',
         status.detector_debug ? `${t('detector_prefix')}: ${status.detector_debug}` : '',
         status.route_debug ? `${t('route_prefix')}: ${status.route_debug}` : '',
+        status.vk_debug ? `VK: ${status.vk_debug}` : '',
       ].filter(Boolean);
       setLog(logLines.join('\\n'));
 
@@ -848,14 +940,22 @@ HTML_PAGE = """<!doctype html>
     }
 
     async function api(path, payload) {
-      const response = await fetch(path, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload || {}),
-      });
-      const data = await response.json();
-      updateStatusUi(data);
-      return data;
+      try {
+        const response = await fetch(path, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload || {}),
+        });
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        const data = await response.json();
+        updateStatusUi(data);
+        return data;
+      } catch (error) {
+        setFetchError(error);
+        throw error;
+      }
     }
 
     async function saveConfig() {
@@ -887,10 +987,21 @@ HTML_PAGE = """<!doctype html>
       await api('/api/slam_route', { action });
     }
 
+    async function testVk() {
+      await api('/api/test_vk', {});
+    }
+
     async function refreshStatus() {
-      const response = await fetch('/api/status');
-      const data = await response.json();
-      updateStatusUi(data);
+      try {
+        const response = await fetch('/api/status');
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        const data = await response.json();
+        updateStatusUi(data);
+      } catch (error) {
+        setFetchError(error);
+      }
     }
 
     setLanguage(currentLanguage);
@@ -899,7 +1010,7 @@ HTML_PAGE = """<!doctype html>
   </script>
 </body>
 </html>
-"""
+""")
 
 
 class RobotManager:
@@ -1332,6 +1443,25 @@ class RobotManager:
 
             return self.status()
 
+    def test_vk(self) -> Dict[str, Any]:
+        with self.lock:
+            if not vk_notifier.is_configured():
+                self.error = "VK notifier is not configured."
+                self.message = "VK test failed."
+                return self.status()
+
+            ok = vk_notifier.send_now(
+                "Тестовое сообщение от робота.\nВеб-интерфейс и VK-связь работают."
+            )
+            if ok:
+                self.error = ""
+                self.message = "VK test message sent."
+            else:
+                self.error = vk_notifier.debug_status()
+                self.message = "VK test failed."
+
+            return self.status()
+
     def status(self) -> Dict[str, Any]:
         config = self.current_config()
         detector = self.detector
@@ -1411,6 +1541,9 @@ class RobotManager:
             "slam_route_recording": slam_route_status["recording"],
             "slam_route_points": slam_route_status["points_count"],
             "slam_pose": slam_route_status["pose"],
+            "vk_enabled": vk_notifier.enabled,
+            "vk_configured": vk_notifier.is_configured(),
+            "vk_debug": vk_notifier.debug_status(),
         }
 
 
@@ -1465,6 +1598,11 @@ def api_bucket():
 def api_slam_route():
     payload = request.get_json(silent=True) or {}
     return jsonify(manager.slam_route_action(str(payload.get("action", ""))))
+
+
+@app.post("/api/test_vk")
+def api_test_vk():
+    return jsonify(manager.test_vk())
 
 
 def main():
