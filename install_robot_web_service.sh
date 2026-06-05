@@ -6,6 +6,9 @@ SERVICE_NAME="robot-web-ui.service"
 SERVICE_PATH="/etc/systemd/system/$SERVICE_NAME"
 WEB_HOST="${WEB_HOST:-0.0.0.0}"
 WEB_PORT="${WEB_PORT:-8088}"
+VENV_PATH="${VENV_PATH:-}"
+
+chmod +x "$SCRIPT_DIR/run_robot_web.sh"
 
 cat <<EOF | sudo tee "$SERVICE_PATH" >/dev/null
 [Unit]
@@ -17,7 +20,10 @@ Wants=network-online.target
 Type=simple
 User=$(id -un)
 WorkingDirectory=$SCRIPT_DIR
-ExecStart=/usr/bin/env python3 $SCRIPT_DIR/robot_web_ui.py --host $WEB_HOST --port $WEB_PORT
+Environment=HOST=$WEB_HOST
+Environment=PORT=$WEB_PORT
+Environment=VENV_PATH=$VENV_PATH
+ExecStart=$SCRIPT_DIR/run_robot_web.sh
 Restart=on-failure
 RestartSec=3
 
