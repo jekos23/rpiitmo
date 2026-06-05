@@ -2,12 +2,18 @@
 set -eu
 
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+ENV_FILE="$SCRIPT_DIR/.robot_web_ui.env"
 HOST="${HOST:-0.0.0.0}"
 PORT="${PORT:-8088}"
 PYTHON_BIN="${PYTHON_BIN:-}"
 VENV_PATH="${VENV_PATH:-}"
 
 cd "$SCRIPT_DIR"
+
+if [ -f "$ENV_FILE" ]; then
+  # shellcheck disable=SC1090
+  . "$ENV_FILE"
+fi
 
 if [ -z "$PYTHON_BIN" ]; then
   if [ -n "$VENV_PATH" ] && [ -x "$VENV_PATH/bin/python" ]; then

@@ -1,8 +1,11 @@
 import argparse
 import json
 import os
+import socket
 import threading
 import time
+import urllib.parse
+import urllib.request
 from typing import Any, Dict, Optional
 
 from flask import Flask, jsonify, request
@@ -29,6 +32,102 @@ DEFAULT_CONFIG = {
     "route_corridor_m": 3.0,
     "slam_route_record_step_m": 0.35,
 }
+
+
+def _get_primary_ip_address() -> str:
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            sock.connect(("1.1.1.1", 80))
+            ip_address = sock.getsockname()[0]
+            if ip_address and not ip_address.startswith(("127.", "169.254.")):
+                return ip_address
+    except OSError:
+        pass
+
+    try:
+        hostname = socket.gethostname()
+        for result in socket.getaddrinfo(hostname, None, socket.AF_INET):
+            ip_address = result[4][0]
+            if ip_address and not ip_address.startswith(("127.", "169.254.")):
+                return ip_address
+    except OSError:
+        pass
+
+    return "127.0.0.1"
+
+
+class VkNotifier:
+    def __init__(self) -> None:
+        self.enabled = str(os.getenv("VK_ENABLED", "0")).strip().lower() not in {
+            "",
+            "0",
+            "false",
+            "no",
+        }
+        self.access_token = str(os.getenv("VK_ACCESS_TOKEN", "")).strip()
+        self.peer_id = str(os.getenv("VK_PEER_ID", "")).strip()
+        self.api_version = str(os.getenv("VK_API_VERSION", "5.199")).strip() or "5.199"
+        self.timeout_sec = 6.0
+        self._dedupe_times: Dict[str, float] = {}
+        self._lock = threading.Lock()
+
+    def is_configured(self) -> bool:
+        return self.enabled and bool(self.access_token) and bool(self.peer_id)
+
+    def send(self, text: str, dedupe_key: Optional[str] = None, dedupe_window_sec: float = 15.0) -> bool:
+        if not text or not self.is_configured():
+            return False
+
+        if dedupe_key:
+            with self._lock:
+                now = time.time()
+                last_time = self._dedupe_times.get(dedupe_key, 0.0)
+                if now - last_time < dedupe_window_sec:
+                    return False
+                self._dedupe_times[dedupe_key] = now
+
+        threading.Thread(
+            target=self._send_blocking,
+            args=(text,),
+            daemon=True,
+        ).start()
+        return True
+
+    def _send_blocking(self, text: str) -> None:
+        try:
+            random_id = int(time.time() * 1000) & 0x7FFFFFFF
+            payload = urllib.parse.urlencode(
+                {
+                    "peer_id": self.peer_id,
+                    "message": text,
+                    "random_id": str(random_id),
+                    "access_token": self.access_token,
+                    "v": self.api_version,
+                }
+            ).encode("utf-8")
+            request_obj = urllib.request.Request(
+                "https://api.vk.com/method/messages.send",
+                data=payload,
+                method="POST",
+            )
+            with urllib.request.urlopen(request_obj, timeout=self.timeout_sec) as response:
+                response_body = response.read().decode("utf-8", errors="ignore")
+                if '"error"' in response_body:
+                    print(f"[VK] API returned an error: {response_body}")
+        except Exception as exc:
+            print(f"[VK] Failed to send message: {exc}")
+
+
+def _build_local_urls(web_port: int, stream_port: int) -> Dict[str, str]:
+    ip_address = _get_primary_ip_address()
+    return {
+        "ip": ip_address,
+        "control_url": f"http://{ip_address}:{web_port}",
+        "stream_url": f"http://{ip_address}:{stream_port}/video_feed",
+    }
+
+
+vk_notifier = VkNotifier()
 
 
 HTML_PAGE = """<!doctype html>
@@ -817,6 +916,13 @@ class RobotManager:
         self.started_at = None
         self.selected_model_name = ""
 
+    def _notify_status(self, text: str, dedupe_key: Optional[str] = None, dedupe_window_sec: float = 15.0) -> None:
+        vk_notifier.send(
+            text,
+            dedupe_key=dedupe_key,
+            dedupe_window_sec=dedupe_window_sec,
+        )
+
     def _defaults(self) -> Dict[str, Any]:
         config = dict(DEFAULT_CONFIG)
         config.update(robot.load_config())
@@ -965,6 +1071,11 @@ class RobotManager:
             with self.lock:
                 self.error = f"Autopilot crashed: {exc}"
                 self.message = "Autopilot stopped with an error."
+                self._notify_status(
+                    f"Ошибка автопилота: {exc}",
+                    dedupe_key="autopilot_error",
+                    dedupe_window_sec=30.0,
+                )
         finally:
             with self.lock:
                 self._shutdown_runtime()
@@ -1052,13 +1163,26 @@ class RobotManager:
                     )
                     self.worker_thread.start()
                     self.message = "Robot started in autopilot mode."
+                    self._notify_status(
+                        f"Робот поехал.\nРежим: автопилот.\nСкорость: {auto_speed}.",
+                        dedupe_key="robot_started_autopilot",
+                    )
                 else:
                     self.mode = "manual"
                     self.message = "Robot started in manual web-control mode."
+                    self._notify_status(
+                        "Робот готов.\nРежим: ручное управление через веб-интерфейс.",
+                        dedupe_key="robot_started_manual",
+                    )
 
             except Exception as exc:
                 self.error = str(exc)
                 self.message = "Robot start failed."
+                self._notify_status(
+                    f"Не удалось запустить робота.\nОшибка: {exc}",
+                    dedupe_key="robot_start_failed",
+                    dedupe_window_sec=30.0,
+                )
                 self._shutdown_runtime()
 
             return self.status()
@@ -1069,6 +1193,7 @@ class RobotManager:
             self.error = ""
             self._shutdown_runtime()
             self.message = "Robot stopped."
+            self._notify_status("Робот остановлен.", dedupe_key="robot_stopped")
             return self.status()
 
     def prepare_bucket(self) -> Dict[str, Any]:
@@ -1078,6 +1203,10 @@ class RobotManager:
                 robot.set_servo_bucket(down=True)
                 self.message = "Bucket moved to search position."
                 self.error = ""
+                self._notify_status(
+                    "Робот готов.\nКовш переведен в поисковое положение.",
+                    dedupe_key="robot_ready",
+                )
             except Exception as exc:
                 self.error = str(exc)
                 self.message = "Failed to prepare bucket."
@@ -1094,6 +1223,7 @@ class RobotManager:
             if action == "stop":
                 robot.stop_all()
                 self.message = "Emergency stop."
+                self._notify_status("Экстренная остановка робота.", dedupe_key="manual_stop")
                 return self.status()
 
             if self.mode != "manual":
@@ -1108,21 +1238,37 @@ class RobotManager:
                     robot.current_mode = 1
                 robot.set_motors(speed, 0, speed, 0)
                 self.message = f"Driving forward at {speed}."
+                self._notify_status(
+                    f"Робот поехал вперед.\nСкорость: {speed}.",
+                    dedupe_key="manual_forward",
+                )
             elif action == "backward":
                 with robot.movement_lock:
                     robot.current_mode = 2
                 robot.set_motors(0, speed, 0, speed)
                 self.message = f"Driving backward at {speed}."
+                self._notify_status(
+                    f"Робот поехал назад.\nСкорость: {speed}.",
+                    dedupe_key="manual_backward",
+                )
             elif action == "left":
                 with robot.movement_lock:
                     robot.current_mode = 3
                 robot.set_motors(speed, 0, 0, speed)
                 self.message = f"Turning left at {speed}."
+                self._notify_status(
+                    f"Робот повернул влево.\nСкорость: {speed}.",
+                    dedupe_key="manual_left",
+                )
             elif action == "right":
                 with robot.movement_lock:
                     robot.current_mode = 4
                 robot.set_motors(0, speed, speed, 0)
                 self.message = f"Turning right at {speed}."
+                self._notify_status(
+                    f"Робот повернул вправо.\nСкорость: {speed}.",
+                    dedupe_key="manual_right",
+                )
             else:
                 self.message = f"Unknown drive action: {action}"
 
@@ -1335,6 +1481,21 @@ def main():
     print(
         f"[WEB] Camera stream will be available on http://<RASPBERRY_PI_IP>:{config.get('camera_stream_port', 5000)}/video_feed"
     )
+    if vk_notifier.is_configured():
+        urls = _build_local_urls(
+            web_port=args.port,
+            stream_port=int(config.get("camera_stream_port", 5000)),
+        )
+        vk_notifier.send(
+            (
+                "Raspberry Pi загружена.\n"
+                f"Интерфейс: {urls['control_url']}\n"
+                f"Видеопоток: {urls['stream_url']}\n"
+                "Робот готов к подключению."
+            ),
+            dedupe_key="web_ui_started",
+            dedupe_window_sec=60.0,
+        )
     app.run(host=args.host, port=args.port, threaded=True)
 
 
