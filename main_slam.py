@@ -261,6 +261,10 @@ bucket_motor_current_speed = 0
 current_mode = 0
 current_speed = 0
 movement_lock = threading.Lock()
+slam_state_lock = threading.Lock()
+latest_slam_pose = None
+slam_route_recording_active = False
+slam_route_last_saved_pose = None
 
 # Параметры робота (обновлены по вашим размерам)
 WHEEL_CIRCUMFERENCE = 0.39 # Длина окружности колеса в метрах (39 см)
@@ -908,7 +912,296 @@ def stop_all():
         current_mode = 0
         current_speed = 0
 
+
+def _normalize_angle_rad(angle):
+    while angle > math.pi:
+        angle -= 2 * math.pi
+    while angle < -math.pi:
+        angle += 2 * math.pi
+    return angle
+
+
+def _extract_best_slam_pose(slam):
+    try:
+        best_particle = max(slam.pf.particles, key=lambda particle: particle.weight)
+        if best_particle.xTrajectory and best_particle.yTrajectory:
+            theta = 0.0
+            if hasattr(best_particle, "prevMatchedReading") and best_particle.prevMatchedReading:
+                theta = float(best_particle.prevMatchedReading.get("theta", 0.0))
+            return {
+                "x": float(best_particle.xTrajectory[-1]),
+                "y": float(best_particle.yTrajectory[-1]),
+                "theta": theta,
+                "time": time.time(),
+            }
+    except Exception:
+        pass
+
+    return {
+        "x": float(getattr(slam, "robot_odom_x", 0.0)),
+        "y": float(getattr(slam, "robot_odom_y", 0.0)),
+        "theta": float(getattr(slam, "robot_odom_theta", 0.0)),
+        "time": time.time(),
+    }
+
+
+def get_current_slam_pose():
+    with slam_state_lock:
+        if latest_slam_pose is None:
+            return None
+        return dict(latest_slam_pose)
+
+
+def _get_slam_route_points():
+    route_points = global_config.get("slam_route_points", [])
+    if isinstance(route_points, list):
+        return route_points
+    return []
+
+
+def _save_slam_route_points(route_points):
+    global global_config
+    global_config["slam_route_points"] = route_points
+    save_config(global_config)
+
+
+def _distance_between_pose_points(a, b):
+    return math.hypot(float(b["x"]) - float(a["x"]), float(b["y"]) - float(a["y"]))
+
+
+def start_slam_route_recording(clear_existing=True):
+    global slam_route_recording_active, slam_route_last_saved_pose, global_config
+
+    if clear_existing:
+        clear_slam_route()
+
+    with slam_state_lock:
+        slam_route_recording_active = True
+        current_pose = dict(latest_slam_pose) if latest_slam_pose else None
+
+    slam_route_last_saved_pose = None
+    global_config["route_source_mode"] = "slam"
+    global_config["slam_route_source_mode"] = "slam"
+    save_config(global_config)
+
+    if current_pose is not None:
+        _append_slam_route_point_if_needed(current_pose, force=True)
+
+    return True
+
+
+def stop_slam_route_recording():
+    global slam_route_recording_active
+    with slam_state_lock:
+        slam_route_recording_active = False
+    return True
+
+
+def clear_slam_route():
+    global slam_route_last_saved_pose
+    slam_route_last_saved_pose = None
+    _save_slam_route_points([])
+    return True
+
+
+def _append_slam_route_point_if_needed(pose, force=False):
+    global slam_route_last_saved_pose
+
+    route_points = list(_get_slam_route_points())
+    min_step_m = float(global_config.get("slam_route_record_step_m", 0.35))
+    point = {
+        "x": float(pose["x"]),
+        "y": float(pose["y"]),
+        "theta": float(pose.get("theta", 0.0)),
+        "time": float(pose.get("time", time.time())),
+    }
+
+    if not force and route_points:
+        last_point = route_points[-1]
+        if _distance_between_pose_points(last_point, point) < min_step_m:
+            return False
+
+    route_points.append(point)
+    slam_route_last_saved_pose = point
+    _save_slam_route_points(route_points)
+    return True
+
+
+def _distance_point_to_segment(px, py, ax, ay, bx, by):
+    abx = bx - ax
+    aby = by - ay
+    ab_len_sq = (abx * abx) + (aby * aby)
+    if ab_len_sq <= 1e-9:
+        return math.hypot(px - ax, py - ay)
+
+    t = ((px - ax) * abx + (py - ay) * aby) / ab_len_sq
+    t = max(0.0, min(1.0, t))
+    closest_x = ax + abx * t
+    closest_y = ay + aby * t
+    return math.hypot(px - closest_x, py - closest_y)
+
+
+def get_slam_route_distance(pose=None):
+    if pose is None:
+        pose = get_current_slam_pose()
+    if pose is None:
+        return None
+
+    route_points = _get_slam_route_points()
+    if not route_points:
+        return None
+
+    if len(route_points) == 1:
+        return _distance_between_pose_points(pose, route_points[0])
+
+    px = float(pose["x"])
+    py = float(pose["y"])
+    best_distance = None
+
+    for index in range(len(route_points) - 1):
+        a = route_points[index]
+        b = route_points[index + 1]
+        distance = _distance_point_to_segment(
+            px,
+            py,
+            float(a["x"]),
+            float(a["y"]),
+            float(b["x"]),
+            float(b["y"]),
+        )
+        if best_distance is None or distance < best_distance:
+            best_distance = distance
+
+    return best_distance
+
+
+def get_slam_route_guidance(pose=None):
+    if pose is None:
+        pose = get_current_slam_pose()
+    if pose is None:
+        return None
+
+    route_points = _get_slam_route_points()
+    if len(route_points) < 2:
+        return None
+
+    px = float(pose["x"])
+    py = float(pose["y"])
+    best_index = 0
+    best_distance = None
+    for index, point in enumerate(route_points):
+        distance = math.hypot(px - float(point["x"]), py - float(point["y"]))
+        if best_distance is None or distance < best_distance:
+            best_distance = distance
+            best_index = index
+
+    target_index = min(best_index + 2, len(route_points) - 1)
+    target = route_points[target_index]
+    dx = float(target["x"]) - px
+    dy = float(target["y"]) - py
+    target_heading = math.atan2(dy, dx)
+    heading_error = _normalize_angle_rad(target_heading - float(pose.get("theta", 0.0)))
+    target_distance = math.hypot(dx, dy)
+
+    return {
+        "nearest_index": best_index,
+        "target_index": target_index,
+        "target_distance": target_distance,
+        "heading_error": heading_error,
+        "corridor_distance": get_slam_route_distance(pose),
+    }
+
+
+def get_route_source_mode():
+    route_source_mode = global_config.get("route_source_mode")
+    if route_source_mode is None:
+        route_source_mode = global_config.get("slam_route_source_mode", "none")
+
+    route_source_mode = str(route_source_mode).strip().lower()
+    if route_source_mode not in {"none", "gps", "slam"}:
+        route_source_mode = "none"
+    return route_source_mode
+
+
+def get_route_corridor_m():
+    try:
+        corridor_m = float(global_config.get("route_corridor_m", 3.0))
+    except (TypeError, ValueError):
+        corridor_m = 3.0
+    return max(0.1, corridor_m)
+
+
+def get_route_state(detector=None):
+    route_source_mode = get_route_source_mode()
+    corridor_m = get_route_corridor_m()
+    state = {
+        "source_mode": route_source_mode,
+        "corridor_m": corridor_m,
+        "route_enabled": False,
+        "within_corridor": True,
+        "distance_m": None,
+        "guidance": None,
+        "slam_pose": None,
+        "slam_route_points": len(_get_slam_route_points()),
+        "route_fresh": False,
+    }
+
+    if route_source_mode == "gps":
+        route_enabled = bool(detector and getattr(detector, "route_mode_enabled", False))
+        route_fresh = bool(detector and getattr(detector, "route_data_fresh", False))
+        within_corridor = bool(detector and getattr(detector, "within_route_corridor", False))
+        route_distance = getattr(detector, "route_distance_m", None) if detector else None
+        state.update(
+            {
+                "route_enabled": route_enabled,
+                "within_corridor": (not route_enabled) or (route_fresh and within_corridor),
+                "distance_m": route_distance,
+                "route_fresh": route_fresh,
+            }
+        )
+        return state
+
+    if route_source_mode == "slam":
+        pose = get_current_slam_pose()
+        route_points = _get_slam_route_points()
+        route_enabled = len(route_points) >= 2
+        route_distance = get_slam_route_distance(pose) if route_enabled else None
+        guidance = get_slam_route_guidance(pose) if route_enabled else None
+        within_corridor = route_distance is None or route_distance <= corridor_m
+        state.update(
+            {
+                "route_enabled": route_enabled,
+                "within_corridor": within_corridor,
+                "distance_m": route_distance,
+                "guidance": guidance,
+                "slam_pose": pose,
+                "slam_route_points": len(route_points),
+                "route_fresh": pose is not None,
+            }
+        )
+        return state
+
+    return state
+
+
+def get_slam_route_status():
+    pose = get_current_slam_pose()
+    with slam_state_lock:
+        recording = slam_route_recording_active
+
+    route_points = _get_slam_route_points()
+    route_distance = get_slam_route_distance(pose) if route_points else None
+    route_guidance = get_slam_route_guidance(pose) if len(route_points) >= 2 else None
+    return {
+        "recording": recording,
+        "points_count": len(route_points),
+        "pose": pose,
+        "distance_m": route_distance,
+        "guidance": route_guidance,
+    }
+
 def slam_thread_function(driver, show_map):
+    global latest_slam_pose
     slam = OnlineFastSlam(show_map=show_map)
     last_time = time.time()
     
@@ -959,6 +1252,12 @@ def slam_thread_function(driver, show_map):
         slam.process_scan(scan, dx, dy, dtheta, LIDAR_OFFSET_X, LIDAR_OFFSET_Y)
         
         # Спим чтобы SLAM работал примерно 5-10 Гц
+        current_pose = _extract_best_slam_pose(slam)
+        with slam_state_lock:
+            latest_slam_pose = current_pose
+            route_recording_active = slam_route_recording_active
+        if route_recording_active:
+            _append_slam_route_point_if_needed(current_pose)
         time.sleep(0.1)
 
 def get_lidar_distance(scan, target_angle_deg, cone_half_angle=5):
@@ -1065,12 +1364,29 @@ def autonomous_loop(driver, speed, detector=None):
         while driver.running:
             # --- ЛОГИКА СБОРА МУСОРА (YOLO) ---
             scan = driver.get_latest_scan()
+            route_state = get_route_state(detector)
+            route_source_mode = route_state["source_mode"]
+            route_enabled = bool(route_state["route_enabled"])
+            route_within_corridor = bool(route_state["within_corridor"])
+            route_guidance = route_state.get("guidance")
             
-            if detector and detector.trash_detected and state not in ["TRASH_APPROACH", "TRASH_COLLECT"]:
+            if (
+                detector
+                and detector.trash_detected
+                and (not route_enabled or route_within_corridor)
+                and state not in ["TRASH_APPROACH", "TRASH_COLLECT"]
+            ):
                 print(f"[АВТОПИЛОТ] МУСОР ОБНАРУЖЕН (Угол: {detector.trash_angle:.1f})! Начинаю сближение.")
                 state = "TRASH_APPROACH"
                 
             if state == "TRASH_APPROACH":
+                if route_enabled and not route_within_corridor:
+                    print("[AUTOPILOT] Target is outside the active route corridor. Returning to route.")
+                    state = "FORWARD"
+                    stop_all()
+                    time.sleep(0.1)
+                    continue
+
                 dist = get_lidar_distance(scan, detector.trash_angle)
                 target_in_zone = bool(getattr(detector, "trash_in_collection_zone", False))
                 print(f"[АВТОПИЛОТ] Сближение... Дистанция по лидару: {dist:.2f}м, Угол: {detector.trash_angle:.1f}°")
@@ -1140,6 +1456,29 @@ def autonomous_loop(driver, speed, detector=None):
                         state = "TURN_LEFT"
                 else:
                     # Едем прямо
+                    if route_source_mode == "gps" and route_enabled and not route_within_corridor:
+                        stop_all()
+                        time.sleep(0.1)
+                        continue
+
+                    if route_source_mode == "slam" and route_enabled and route_guidance:
+                        heading_error_deg = math.degrees(float(route_guidance["heading_error"]))
+                        turn_speed = max(700, speed // 2)
+                        if heading_error_deg > 10:
+                            with movement_lock:
+                                current_mode = 3
+                                current_speed = turn_speed
+                            set_motors(turn_speed, 0, 0, turn_speed)
+                            time.sleep(0.1)
+                            continue
+                        if heading_error_deg < -10:
+                            with movement_lock:
+                                current_mode = 4
+                                current_speed = turn_speed
+                            set_motors(0, turn_speed, turn_speed, 0)
+                            time.sleep(0.1)
+                            continue
+
                     with movement_lock:
                         current_mode = 1
                         current_speed = speed

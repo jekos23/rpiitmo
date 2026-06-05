@@ -21,6 +21,12 @@ class RemoteTrashListener:
         self.trash_detected = False
         self.trash_angle = 0.0
         self.trash_in_collection_zone = False
+        self.route_mode_enabled = False
+        self.within_route_corridor = True
+        self.route_distance_m = None
+        self.route_data_fresh = False
+        self.position = None
+        self.last_packet_time = 0.0
 
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.bind(("0.0.0.0", self.port))
@@ -81,7 +87,27 @@ class RemoteTrashListener:
                 self.trash_in_collection_zone = bool(
                     message.get("in_collection_zone", False)
                 )
+                self.route_mode_enabled = bool(
+                    message.get("route_mode_enabled", False)
+                )
+                self.within_route_corridor = bool(
+                    message.get(
+                        "within_route_corridor",
+                        not self.route_mode_enabled,
+                    )
+                )
+                route_distance = message.get("route_distance_m")
+                try:
+                    self.route_distance_m = (
+                        float(route_distance) if route_distance is not None else None
+                    )
+                except (TypeError, ValueError):
+                    self.route_distance_m = None
+                position = message.get("position")
+                self.position = position if isinstance(position, dict) else None
                 last_receive_time = time.time()
+                self.route_data_fresh = True
+                self.last_packet_time = last_receive_time
 
                 if self.trash_detected:
                     zone_suffix = " [ZONE]" if self.trash_in_collection_zone else ""
@@ -94,5 +120,9 @@ class RemoteTrashListener:
                 if time.time() - last_receive_time > 2.0:
                     self.trash_detected = False
                     self.trash_in_collection_zone = False
+                    self.route_data_fresh = False
+                    if self.route_mode_enabled:
+                        self.within_route_corridor = False
+                        self.route_distance_m = None
             except Exception:
                 pass

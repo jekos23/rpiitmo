@@ -25,6 +25,9 @@ DEFAULT_CONFIG = {
     "run_mode": "2",
     "auto_speed": 1500,
     "manual_speed": 1400,
+    "route_source_mode": "none",
+    "route_corridor_m": 3.0,
+    "slam_route_record_step_m": 0.35,
 }
 
 
@@ -257,6 +260,19 @@ HTML_PAGE = """<!doctype html>
           <option value="3">Disabled</option>
         </select>
 
+        <label for="route_source_mode">Route source</label>
+        <select id="route_source_mode">
+          <option value="none">Disabled</option>
+          <option value="slam">LiDAR SLAM route</option>
+          <option value="gps">Phone GPS / indoor positioning</option>
+        </select>
+
+        <label for="route_corridor_m">Route corridor (meters)</label>
+        <input id="route_corridor_m" type="number" min="0.5" max="10" step="0.1" />
+
+        <label for="slam_route_record_step_m">SLAM point step (meters)</label>
+        <input id="slam_route_record_step_m" type="number" min="0.1" max="2" step="0.05" />
+
         <label for="selected_model_name">Local model folder name</label>
         <input id="selected_model_name" placeholder="optional" />
 
@@ -276,6 +292,8 @@ HTML_PAGE = """<!doctype html>
           <div class="stat-item"><span>Trash detector</span><strong id="statTrash">--</strong></div>
           <div class="stat-item"><span>Bucket Arduino</span><strong id="statArduino">--</strong></div>
           <div class="stat-item"><span>Active model</span><strong id="statModel">--</strong></div>
+          <div class="stat-item"><span>Route source</span><strong id="statRouteSource">--</strong></div>
+          <div class="stat-item"><span>Route status</span><strong id="statRoute">--</strong></div>
         </div>
       </section>
 
@@ -312,6 +330,16 @@ HTML_PAGE = """<!doctype html>
               <button class="dark" onclick="bucket('bucket_test')">Timed test</button>
               <button onclick="bucket('collect')">Collect cycle</button>
             </div>
+
+            <h3 style="margin-top:18px;">SLAM Route</h3>
+            <div class="button-row">
+              <button class="dark" onclick="slamRoute('start_record')">Record route</button>
+              <button class="dark" onclick="slamRoute('stop_record')">Stop record</button>
+            </div>
+            <div class="button-row">
+              <button class="warn" onclick="slamRoute('clear')">Clear route</button>
+              <button class="secondary" onclick="refreshStatus()">Refresh</button>
+            </div>
           </div>
         </div>
 
@@ -336,6 +364,9 @@ HTML_PAGE = """<!doctype html>
         auto_speed: parseInt(document.getElementById('auto_speed').value || '1500', 10),
         manual_speed: parseInt(document.getElementById('manual_speed').value || '1400', 10),
         yolo_choice: document.getElementById('yolo_choice').value,
+        route_source_mode: document.getElementById('route_source_mode').value,
+        route_corridor_m: parseFloat(document.getElementById('route_corridor_m').value || '3.0'),
+        slam_route_record_step_m: parseFloat(document.getElementById('slam_route_record_step_m').value || '0.35'),
         selected_model_name: document.getElementById('selected_model_name').value.trim(),
       };
     }
@@ -350,6 +381,9 @@ HTML_PAGE = """<!doctype html>
       document.getElementById('auto_speed').value = config.auto_speed || 1500;
       document.getElementById('manual_speed').value = config.manual_speed || 1400;
       document.getElementById('yolo_choice').value = String(config.yolo_choice || '1');
+      document.getElementById('route_source_mode').value = String(config.route_source_mode || 'none');
+      document.getElementById('route_corridor_m').value = config.route_corridor_m || 3.0;
+      document.getElementById('slam_route_record_step_m').value = config.slam_route_record_step_m || 0.35;
       document.getElementById('selected_model_name').value = config.selected_model_name || '';
     }
 
@@ -360,6 +394,29 @@ HTML_PAGE = """<!doctype html>
     function updateStatusUi(status) {
       lastStatus = status;
       applyConfig(status.config);
+      const routeSourceLabels = {
+        none: 'disabled',
+        slam: 'LiDAR SLAM',
+        gps: 'Phone GPS/UWB',
+      };
+      let routeSummary = 'disabled';
+      if (status.route_source_mode === 'slam') {
+        routeSummary = `${status.slam_route_points || 0} pts`;
+        if (typeof status.route_distance_m === 'number') {
+          routeSummary += ` | ${status.route_distance_m.toFixed(2)} m`;
+        }
+        if (status.slam_route_recording) {
+          routeSummary += ' | recording';
+        }
+      } else if (status.route_source_mode === 'gps') {
+        routeSummary = status.route_fresh ? 'phone route active' : 'waiting for phone route';
+        if (typeof status.route_distance_m === 'number') {
+          routeSummary += ` | ${status.route_distance_m.toFixed(2)} m`;
+        }
+        if (status.route_enabled) {
+          routeSummary += status.route_within_corridor ? ' | inside corridor' : ' | outside corridor';
+        }
+      }
 
       document.getElementById('heroStatus').textContent = status.running
         ? `Running: ${status.mode_label}`
@@ -373,12 +430,15 @@ HTML_PAGE = """<!doctype html>
       document.getElementById('statTrash').textContent = status.trash_summary || 'disabled';
       document.getElementById('statArduino').textContent = status.bucket_arduino_connected ? 'connected' : 'disconnected';
       document.getElementById('statModel').textContent = status.selected_model_name || 'phone / none';
+      document.getElementById('statRouteSource').textContent = routeSourceLabels[status.route_source_mode] || status.route_source_mode || 'disabled';
+      document.getElementById('statRoute').textContent = routeSummary;
 
       const logLines = [
         status.message || '',
         status.error ? `Error: ${status.error}` : '',
         status.stream_url ? `Stream: ${status.stream_url}` : '',
         status.detector_debug ? `Detector: ${status.detector_debug}` : '',
+        status.route_debug ? `Route: ${status.route_debug}` : '',
       ].filter(Boolean);
       setLog(logLines.join('\\n'));
 
@@ -427,6 +487,10 @@ HTML_PAGE = """<!doctype html>
 
     async function bucket(action) {
       await api('/api/bucket', { action });
+    }
+
+    async function slamRoute(action) {
+      await api('/api/slam_route', { action });
     }
 
     async function refreshStatus() {
@@ -479,6 +543,23 @@ class RobotManager:
         normalized["run_mode"] = str(normalized.get("run_mode", "2"))
         normalized["auto_speed"] = int(normalized.get("auto_speed", 1500))
         normalized["manual_speed"] = int(normalized.get("manual_speed", 1400))
+        normalized["route_source_mode"] = str(
+            normalized.get("route_source_mode", "none")
+        ).strip().lower()
+        if normalized["route_source_mode"] not in {"none", "slam", "gps"}:
+            normalized["route_source_mode"] = "none"
+        try:
+            normalized["route_corridor_m"] = max(
+                0.1, float(normalized.get("route_corridor_m", 3.0))
+            )
+        except (TypeError, ValueError):
+            normalized["route_corridor_m"] = 3.0
+        try:
+            normalized["slam_route_record_step_m"] = max(
+                0.05, float(normalized.get("slam_route_record_step_m", 0.35))
+            )
+        except (TypeError, ValueError):
+            normalized["slam_route_record_step_m"] = 0.35
         normalized["selected_model_name"] = str(
             normalized.get("selected_model_name", "")
         ).strip()
@@ -614,6 +695,17 @@ class RobotManager:
 
             if not config["camera_port"]:
                 self.error = "Camera port is required."
+                self.message = "Start failed."
+                return self.status()
+
+            if (
+                config["route_source_mode"] == "gps"
+                and str(config.get("yolo_choice", "1")) != "1"
+            ):
+                self.error = (
+                    "Phone GPS route mode requires YOLO source 1 "
+                    "(phone / PC detector over Wi-Fi)."
+                )
                 self.message = "Start failed."
                 return self.status()
 
@@ -773,9 +865,36 @@ class RobotManager:
 
             return self.status()
 
+    def slam_route_action(self, action: str) -> Dict[str, Any]:
+        with self.lock:
+            try:
+                if action == "start_record":
+                    if not self.running or not self.driver or not getattr(self.driver, "running", False):
+                        self.message = "Start the robot before recording a SLAM route."
+                        return self.status()
+                    robot.start_slam_route_recording(clear_existing=True)
+                    self.message = "SLAM route recording started. Drive the robot along the desired path."
+                elif action == "stop_record":
+                    robot.stop_slam_route_recording()
+                    self.message = "SLAM route recording stopped."
+                elif action == "clear":
+                    robot.stop_slam_route_recording()
+                    robot.clear_slam_route()
+                    self.message = "SLAM route cleared."
+                else:
+                    self.message = f"Unknown SLAM route action: {action}"
+                self.error = ""
+            except Exception as exc:
+                self.error = str(exc)
+                self.message = "SLAM route action failed."
+
+            return self.status()
+
     def status(self) -> Dict[str, Any]:
         config = self.current_config()
         detector = self.detector
+        route_state = robot.get_route_state(detector)
+        slam_route_status = robot.get_slam_route_status()
         trash_summary = "disabled"
         detector_debug = ""
         if detector:
@@ -789,6 +908,11 @@ class RobotManager:
                 f"detected={trash_detected}, angle={trash_angle:.1f}, "
                 f"allow_text={getattr(detector, 'allow_text_commands', False)}"
             )
+            if route_state["source_mode"] == "gps":
+                detector_debug += (
+                    f", route_enabled={route_state['route_enabled']}, "
+                    f"route_fresh={route_state['route_fresh']}"
+                )
 
         stream_port = int(config.get("camera_stream_port", 5000))
         stream_url = f"http://{request.host.split(':')[0]}:{stream_port}/video_feed"
@@ -801,6 +925,19 @@ class RobotManager:
         uptime_sec = None
         if self.started_at:
             uptime_sec = max(0, int(time.time() - self.started_at))
+
+        route_debug_parts = [
+            f"source={route_state['source_mode']}",
+            f"enabled={route_state['route_enabled']}",
+            f"within={route_state['within_corridor']}",
+        ]
+        if route_state["distance_m"] is not None:
+            route_debug_parts.append(f"distance={float(route_state['distance_m']):.2f}m")
+        if slam_route_status["points_count"]:
+            route_debug_parts.append(f"slam_points={slam_route_status['points_count']}")
+        if slam_route_status["recording"]:
+            route_debug_parts.append("recording=yes")
+        route_debug = ", ".join(route_debug_parts)
 
         return {
             "running": self.running,
@@ -823,6 +960,15 @@ class RobotManager:
             "current_mode": robot.current_mode,
             "current_speed": robot.current_speed,
             "lidar_running": bool(self.driver and getattr(self.driver, "running", False)),
+            "route_source_mode": route_state["source_mode"],
+            "route_enabled": route_state["route_enabled"],
+            "route_within_corridor": route_state["within_corridor"],
+            "route_distance_m": route_state["distance_m"],
+            "route_fresh": route_state["route_fresh"],
+            "route_debug": route_debug,
+            "slam_route_recording": slam_route_status["recording"],
+            "slam_route_points": slam_route_status["points_count"],
+            "slam_pose": slam_route_status["pose"],
         }
 
 
@@ -871,6 +1017,12 @@ def api_drive():
 def api_bucket():
     payload = request.get_json(silent=True) or {}
     return jsonify(manager.bucket_action(str(payload.get("action", ""))))
+
+
+@app.post("/api/slam_route")
+def api_slam_route():
+    payload = request.get_json(silent=True) or {}
+    return jsonify(manager.slam_route_action(str(payload.get("action", ""))))
 
 
 def main():
