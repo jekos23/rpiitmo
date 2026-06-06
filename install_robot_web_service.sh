@@ -8,10 +8,6 @@ ENV_FILE="$SCRIPT_DIR/.robot_web_ui.env"
 ENV_HOST=""
 ENV_PORT=""
 ENV_VENV_PATH=""
-ENV_VK_ENABLED=""
-ENV_VK_ACCESS_TOKEN=""
-ENV_VK_PEER_ID=""
-ENV_VK_API_VERSION=""
 
 if [ -f "$ENV_FILE" ]; then
   # shellcheck disable=SC1090
@@ -19,19 +15,11 @@ if [ -f "$ENV_FILE" ]; then
   ENV_HOST="${HOST:-}"
   ENV_PORT="${PORT:-}"
   ENV_VENV_PATH="${VENV_PATH:-}"
-  ENV_VK_ENABLED="${VK_ENABLED:-}"
-  ENV_VK_ACCESS_TOKEN="${VK_ACCESS_TOKEN:-}"
-  ENV_VK_PEER_ID="${VK_PEER_ID:-}"
-  ENV_VK_API_VERSION="${VK_API_VERSION:-}"
 fi
 
 WEB_HOST="${WEB_HOST:-${ENV_HOST:-0.0.0.0}}"
 WEB_PORT="${WEB_PORT:-${ENV_PORT:-8088}}"
 VENV_PATH="${VENV_PATH:-$ENV_VENV_PATH}"
-VK_ENABLED="${VK_ENABLED:-${ENV_VK_ENABLED:-1}}"
-VK_ACCESS_TOKEN="${VK_ACCESS_TOKEN:-$ENV_VK_ACCESS_TOKEN}"
-VK_PEER_ID="${VK_PEER_ID:-$ENV_VK_PEER_ID}"
-VK_API_VERSION="${VK_API_VERSION:-${ENV_VK_API_VERSION:-5.199}}"
 
 chmod +x "$SCRIPT_DIR/run_robot_web.sh"
 
@@ -39,10 +27,6 @@ cat > "$ENV_FILE" <<EOF
 HOST="$WEB_HOST"
 PORT="$WEB_PORT"
 VENV_PATH="$VENV_PATH"
-VK_ENABLED="$VK_ENABLED"
-VK_ACCESS_TOKEN="$VK_ACCESS_TOKEN"
-VK_PEER_ID="$VK_PEER_ID"
-VK_API_VERSION="$VK_API_VERSION"
 EOF
 
 chmod 600 "$ENV_FILE"
@@ -70,4 +54,3 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now "$SERVICE_NAME"
 echo "[SERVICE] Installed and started $SERVICE_NAME"
 echo "[SERVICE] Open http://<RASPBERRY_PI_IP>:$WEB_PORT"
-echo "[SERVICE] VK notifications are controlled through $ENV_FILE"
