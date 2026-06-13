@@ -2,10 +2,6 @@ import time
 import board
 import busio
 from adafruit_pca9685 import PCA9685
-try:
-    import serial
-except ImportError:
-    serial = None
 import threading
 import sys
 import math
@@ -38,11 +34,16 @@ def load_config():
 
 def save_config(cfg):
     global global_config
+    sanitized = dict(cfg)
+    sanitized.pop("arduino_port", None)
+    sanitized.pop("arduino_baudrate", None)
+    sanitized.pop("arduino_timeout_sec", None)
+    sanitized.pop("arduino_boot_wait_sec", None)
     try:
         with open(CONFIG_FILE, "w") as f:
-            json.dump(cfg, f, indent=4)
+            json.dump(sanitized, f, indent=4)
     except: pass
-    global_config = dict(cfg)
+    global_config = dict(sanitized)
 
 def find_serial_candidates():
     candidates = []
@@ -229,6 +230,139 @@ def prompt_for_camera_port(saved_port=None):
 
 global_config = load_config()
 
+MOTOR_PCA_DEFAULT_ADDRESS = 0x40
+SERVO_PCA_DEFAULT_ADDRESS = 0x41
+MOTOR_PCA_FREQUENCY = 1000
+SERVO_PCA_FREQUENCY = 50
+BUCKET_SERVO_DEFAULT_CHANNEL = 0
+BUCKET_SERVO_MIN_PULSE_US = 500
+BUCKET_SERVO_MAX_PULSE_US = 2500
+
+i2c = None
+pca = None
+servo_pca = None
+pca_runtime_signature = None
+
+
+def _parse_i2c_address(value, default):
+    if value in (None, ""):
+        return int(default)
+    if isinstance(value, str):
+        text = value.strip().lower()
+        if not text:
+            return int(default)
+        base = 16 if text.startswith("0x") else 10
+        return int(text, base)
+    return int(value)
+
+
+def _get_drive_pca_address(config=None):
+    config = config or global_config
+    try:
+        return _parse_i2c_address(
+            config.get("drive_pca_address", MOTOR_PCA_DEFAULT_ADDRESS),
+            MOTOR_PCA_DEFAULT_ADDRESS,
+        )
+    except (TypeError, ValueError):
+        return MOTOR_PCA_DEFAULT_ADDRESS
+
+
+def _get_servo_pca_address(config=None):
+    config = config or global_config
+    try:
+        return _parse_i2c_address(
+            config.get("servo_pca_address", SERVO_PCA_DEFAULT_ADDRESS),
+            SERVO_PCA_DEFAULT_ADDRESS,
+        )
+    except (TypeError, ValueError):
+        return SERVO_PCA_DEFAULT_ADDRESS
+
+
+def _get_bucket_servo_channel(config=None):
+    config = config or global_config
+    try:
+        channel = int(config.get("bucket_servo_channel", BUCKET_SERVO_DEFAULT_CHANNEL))
+    except (TypeError, ValueError):
+        channel = BUCKET_SERVO_DEFAULT_CHANNEL
+    return max(0, min(15, channel))
+
+
+def _get_bucket_servo_min_pulse_us(config=None):
+    config = config or global_config
+    try:
+        value = int(config.get("bucket_servo_min_pulse_us", BUCKET_SERVO_MIN_PULSE_US))
+    except (TypeError, ValueError):
+        value = BUCKET_SERVO_MIN_PULSE_US
+    return max(200, min(3000, value))
+
+
+def _get_bucket_servo_max_pulse_us(config=None):
+    config = config or global_config
+    try:
+        value = int(config.get("bucket_servo_max_pulse_us", BUCKET_SERVO_MAX_PULSE_US))
+    except (TypeError, ValueError):
+        value = BUCKET_SERVO_MAX_PULSE_US
+    return max(_get_bucket_servo_min_pulse_us(config) + 100, min(3200, value))
+
+
+def _deinit_pca_board(board_instance):
+    if not board_instance:
+        return
+    try:
+        board_instance.deinit()
+    except Exception:
+        pass
+
+
+def init_pca_controllers(config=None):
+    global i2c, pca, servo_pca, pca_runtime_signature
+
+    config = config or global_config
+    drive_address = _get_drive_pca_address(config)
+    servo_address = _get_servo_pca_address(config)
+    runtime_signature = (drive_address, servo_address)
+
+    if pca and servo_pca and pca_runtime_signature == runtime_signature:
+        return True
+
+    if drive_address == servo_address:
+        print(
+            f"[I2C] drive_pca_address ({hex(drive_address)}) and "
+            f"servo_pca_address ({hex(servo_address)}) must be different."
+        )
+        pca = None
+        servo_pca = None
+        pca_runtime_signature = None
+        return False
+
+    try:
+        if i2c is None:
+            i2c = busio.I2C(board.SCL, board.SDA)
+
+        _deinit_pca_board(pca)
+        _deinit_pca_board(servo_pca)
+
+        motor_board = PCA9685(i2c, address=drive_address)
+        motor_board.frequency = MOTOR_PCA_FREQUENCY
+
+        servo_board = PCA9685(i2c, address=servo_address)
+        servo_board.frequency = SERVO_PCA_FREQUENCY
+
+        pca = motor_board
+        servo_pca = servo_board
+        pca_runtime_signature = runtime_signature
+        print(
+            f"[I2C] PCA9685 ready: drive={hex(drive_address)}@{MOTOR_PCA_FREQUENCY}Hz, "
+            f"servo={hex(servo_address)}@{SERVO_PCA_FREQUENCY}Hz."
+        )
+        return True
+    except Exception as e:
+        print(f"I2C/PCA9685 initialization failed (normal on PC): {e}")
+        pca = None
+        servo_pca = None
+        pca_runtime_signature = None
+        return False
+
 # Инициализация I2C шины и PCA9685
 try:
     i2c = busio.I2C(board.SCL, board.SDA)
@@ -243,11 +377,16 @@ LEFT_REV_CHANNELS = [1, 2, 4]
 RIGHT_FWD_CHANNELS = [7, 9, 11]
 RIGHT_REV_CHANNELS = [6, 8, 10]
 
+init_pca_controllers(global_config)
+
 # Глобальные переменные состояния движения для псевдо-одометрии
 DRIVE_CHANNELS = set(LEFT_FWD_CHANNELS + LEFT_REV_CHANNELS + RIGHT_FWD_CHANNELS + RIGHT_REV_CHANNELS)
 BUCKET_MOTOR_DEFAULT_FWD_CHANNEL = 12
 BUCKET_MOTOR_DEFAULT_REV_CHANNEL = 13
 
+bucket_servo_lock = threading.Lock()
+bucket_servo_release_timer = None
+bucket_servo_current_angle = None
 bucket_arduino = None
 bucket_arduino_lock = threading.Lock()
 bucket_arduino_running = False
@@ -276,7 +415,8 @@ LIDAR_OFFSET_X = -0.17     # Смещение лидара по оси X (наз
 LIDAR_OFFSET_Y = -0.275    # Смещение лидара по оси Y (вправо от центра)
 
 def set_motors(left_fwd, left_rev, right_fwd, right_rev):
-    if not pca: return
+    if not pca and not init_pca_controllers(global_config):
+        return
     def scale_speed(speed):
         speed = max(0, min(4095, speed))
         return int((speed / 4095.0) * 65535)
@@ -292,6 +432,7 @@ def set_motors(left_fwd, left_rev, right_fwd, right_rev):
     for ch in RIGHT_REV_CHANNELS: pca.channels[ch].duty_cycle = r_rev_pwm
 
 def _legacy_set_servo_bucket(down=True):
+    return set_servo_bucket(down=down, wait=True)
     if not pca or not servo: 
         print("[СЕРВОПРИВОД] Ошибка: PCA9685 или библиотека adafruit_motor не найдены!")
         return
@@ -354,7 +495,7 @@ def _get_bucket_motor_channels():
         return None, None
     return fwd, rev
 
-def init_bucket_arduino(config):
+def legacy_init_bucket_arduino_unused(config):
     global bucket_arduino, bucket_arduino_running, bucket_arduino_reader_thread
 
     if bucket_arduino:
@@ -406,7 +547,7 @@ def _bucket_arduino_reader_loop():
                 print(f"[ARDUINO] Ошибка чтения Serial: {e}")
             time.sleep(0.2)
 
-def close_bucket_arduino():
+def legacy_close_bucket_arduino_unused():
     global bucket_arduino, bucket_arduino_running
 
     bucket_arduino_running = False
@@ -417,7 +558,7 @@ def close_bucket_arduino():
             pass
     bucket_arduino = None
 
-def send_bucket_arduino_command(command):
+def legacy_send_bucket_arduino_command_unused(command):
     if not bucket_arduino:
         print(f"[ARDUINO] Команда '{command}' пропущена: Arduino не подключен.")
         return False
@@ -431,7 +572,7 @@ def send_bucket_arduino_command(command):
         print(f"[ARDUINO] Не удалось отправить команду '{command}': {e}")
         return False
 
-def _move_bucket_servo_to_angle(target_angle, label, wait=True):
+def legacy_move_bucket_servo_to_angle_unused(target_angle, label, wait=True):
     target_angle = max(0, min(180, int(target_angle)))
     if not send_bucket_arduino_command(f"SERVO:{target_angle}"):
         return False
@@ -441,16 +582,141 @@ def _move_bucket_servo_to_angle(target_angle, label, wait=True):
         time.sleep(float(global_config.get("bucket_servo_move_sec", 0.8)))
     return True
 
-def set_servo_bucket(down=True, wait=True):
+def legacy_set_servo_bucket_via_arduino_unused(down=True, wait=True):
     up_angle = global_config.get("servo_up_angle", 0)
     down_angle = global_config.get("servo_down_angle", 90)
     target_angle = down_angle if down else up_angle
     label = "ОПУСКАЮ" if down else "ПОДНИМАЮ"
     return _move_bucket_servo_to_angle(target_angle, label, wait=wait)
 
+def is_bucket_servo_controller_ready():
+    return servo_pca is not None
+
+
+def init_bucket_servo_controller(config):
+    return init_pca_controllers(config) and servo_pca is not None
+
+
+def _release_bucket_servo_signal():
+    global bucket_servo_release_timer
+
+    bucket_servo_release_timer = None
+    if not servo_pca:
+        return
+
+    try:
+        servo_pca.channels[_get_bucket_servo_channel()].duty_cycle = 0
+    except Exception:
+        pass
+
+
+def _cancel_bucket_servo_release():
+    global bucket_servo_release_timer
+
+    timer = bucket_servo_release_timer
+    bucket_servo_release_timer = None
+    if timer:
+        timer.cancel()
+
+
+def _schedule_bucket_servo_release(delay_sec):
+    global bucket_servo_release_timer
+
+    _cancel_bucket_servo_release()
+    timer = threading.Timer(max(0.05, float(delay_sec)), _release_bucket_servo_signal)
+    timer.daemon = True
+    bucket_servo_release_timer = timer
+    timer.start()
+
+
+def close_bucket_servo_controller():
+    _cancel_bucket_servo_release()
+    _release_bucket_servo_signal()
+
+
+def _bucket_servo_angle_to_duty_cycle(angle, config=None):
+    config = config or global_config
+    angle = max(0.0, min(180.0, float(angle)))
+    min_pulse_us = _get_bucket_servo_min_pulse_us(config)
+    max_pulse_us = _get_bucket_servo_max_pulse_us(config)
+    pulse_us = min_pulse_us + ((max_pulse_us - min_pulse_us) * (angle / 180.0))
+    return max(0, min(65535, int((pulse_us / 20000.0) * 65535)))
+
+
+def _write_bucket_servo_angle(angle):
+    global bucket_servo_current_angle
+
+    angle = max(0, min(180, int(angle)))
+    servo_pca.channels[_get_bucket_servo_channel()].duty_cycle = _bucket_servo_angle_to_duty_cycle(angle)
+    bucket_servo_current_angle = angle
+
+
+def init_bucket_arduino(config):
+    return init_bucket_servo_controller(config)
+
+
+def close_bucket_arduino():
+    close_bucket_servo_controller()
+
+
+def send_bucket_arduino_command(command):
+    command = str(command).strip().upper()
+    if not command.startswith("SERVO:"):
+        print(f"[SERVO] Unsupported legacy servo command: {command}")
+        return False
+    try:
+        angle = float(command.split(":", 1)[1])
+    except ValueError:
+        print(f"[SERVO] Invalid legacy servo command: {command}")
+        return False
+    return _move_bucket_servo_to_angle(angle, "MOVING", wait=False)
+
+
+def _move_bucket_servo_to_angle(target_angle, label, wait=True):
+    global bucket_servo_current_angle
+
+    if not init_bucket_servo_controller(global_config):
+        print("[SERVO] Bucket servo PCA9685 is not available.")
+        return False
+
+    target_angle = max(0, min(180, int(target_angle)))
+    move_sec = max(0.05, float(global_config.get("bucket_servo_move_sec", 0.8)))
+    step_deg = max(1, int(global_config.get("bucket_servo_step_deg", 3)))
+    step_delay_sec = max(0.005, float(global_config.get("bucket_servo_step_delay_sec", 0.02)))
+
+    with bucket_servo_lock:
+        _cancel_bucket_servo_release()
+
+        start_angle = bucket_servo_current_angle
+        if wait and start_angle is not None and start_angle != target_angle:
+            direction = 1 if target_angle > start_angle else -1
+            for angle in range(start_angle, target_angle, direction * step_deg):
+                _write_bucket_servo_angle(angle)
+                time.sleep(step_delay_sec)
+
+        _write_bucket_servo_angle(target_angle)
+        _schedule_bucket_servo_release(move_sec + 0.1)
+
+    print(
+        f"[SERVO - PCA {hex(_get_servo_pca_address())} CH{_get_bucket_servo_channel()}] "
+        f"{label} bucket to {target_angle} deg."
+    )
+    if wait:
+        time.sleep(move_sec)
+    return True
+
+
+def set_servo_bucket(down=True, wait=True):
+    up_angle = global_config.get("servo_up_angle", 0)
+    down_angle = global_config.get("servo_down_angle", 90)
+    target_angle = down_angle if down else up_angle
+    label = "LOWERING" if down else "RAISING"
+    return _move_bucket_servo_to_angle(target_angle, label, wait=wait)
+
+
 def set_bucket_motor(speed):
     global bucket_motor_current_speed
-    if not pca:
+    if not pca and not init_pca_controllers(global_config):
         print("[КОВШ] PCA9685 недоступна, мотор ковша не управляется.")
         return False
 
@@ -515,7 +781,7 @@ def handle_remote_servo_command(command):
     except ValueError:
         print(f"[REMOTE] Неизвестная команда сервоприводу: {command}")
 
-def legacy_handle_remote_bucket_motor_command_unused(command):
+def legacy_handle_remote_bucket_motor_pulse_unused(command):
     command = str(command).strip().upper()
     collect_speed = int(global_config.get("bucket_motor_collect_speed", 2800))
     reverse_speed = int(global_config.get("bucket_motor_reverse_speed", -collect_speed))
@@ -778,7 +1044,7 @@ def run_bucket_collect_cycle():
         set_bucket_motor(0)
         time.sleep(settle_after_sec)
 
-def handle_remote_bucket_motor_command(command):
+def legacy_handle_remote_bucket_motor_position_unused(command):
     command = str(command).strip().upper()
     if command in {"DOWN", "LOWER"}:
         threading.Thread(target=move_bucket_wall_to_lower_position, daemon=True).start()
@@ -899,6 +1165,18 @@ def handle_remote_bucket_motor_command(command):
         threading.Thread(target=run_bucket_collect_cycle, daemon=True).start()
     elif command in {"TEST", "TIMED"}:
         threading.Thread(target=run_bucket_wall_timed_test, daemon=True).start()
+    elif command == "JOG+":
+        threading.Thread(
+            target=pulse_bucket_motor,
+            args=(int(global_config.get("bucket_wall_manual_speed", 4095)),),
+            daemon=True,
+        ).start()
+    elif command == "JOG-":
+        threading.Thread(
+            target=pulse_bucket_motor,
+            args=(-int(global_config.get("bucket_wall_manual_speed", 4095)),),
+            daemon=True,
+        ).start()
     elif command in {"STOP", "0"}:
         set_bucket_motor(0)
     else:
@@ -1546,13 +1824,16 @@ def legacy_main_unused():
     lidar_port = input(f"Введите порт лидара (Enter для {config.get('lidar_port', '/dev/ttyUSB0')}): ").strip()
     if not lidar_port: lidar_port = config.get('lidar_port', '/dev/ttyUSB0')
     config['lidar_port'] = lidar_port
-    arduino_port = prompt_for_serial_port(
-        "Arduino ковша",
-        saved_port=config.get('arduino_port', '/dev/ttyACM0'),
-        forbidden_ports={lidar_port},
-    )
-    config["arduino_port"] = arduino_port
-    init_bucket_arduino(config)
+    config["servo_pca_address"] = str(
+        config.get("servo_pca_address", hex(SERVO_PCA_DEFAULT_ADDRESS))
+    ).strip() or hex(SERVO_PCA_DEFAULT_ADDRESS)
+    try:
+        config["bucket_servo_channel"] = int(
+            config.get("bucket_servo_channel", BUCKET_SERVO_DEFAULT_CHANNEL)
+        )
+    except (TypeError, ValueError):
+        config["bucket_servo_channel"] = BUCKET_SERVO_DEFAULT_CHANNEL
+    init_bucket_servo_controller(config)
     print("Установка ковша в нулевое положение...")
     set_servo_bucket(down=True)
         
@@ -1724,12 +2005,15 @@ def main():
     )
     config["lidar_port"] = lidar_port
 
-    arduino_port = prompt_for_serial_port(
-        "Arduino ковша",
-        saved_port=config.get("arduino_port", "/dev/ttyACM0"),
-        forbidden_ports={lidar_port},
-    )
-    config["arduino_port"] = arduino_port
+    config["servo_pca_address"] = str(
+        config.get("servo_pca_address", hex(SERVO_PCA_DEFAULT_ADDRESS))
+    ).strip() or hex(SERVO_PCA_DEFAULT_ADDRESS)
+    try:
+        config["bucket_servo_channel"] = int(
+            config.get("bucket_servo_channel", BUCKET_SERVO_DEFAULT_CHANNEL)
+        )
+    except (TypeError, ValueError):
+        config["bucket_servo_channel"] = BUCKET_SERVO_DEFAULT_CHANNEL
     config["servo_up_angle"] = 0
     config["servo_down_angle"] = 90
     config["bucket_wall_manual_speed"] = 4095
@@ -1742,7 +2026,7 @@ def main():
     start_video_streamer(config)
     save_config(config)
 
-    init_bucket_arduino(config)
+    init_bucket_servo_controller(config)
     calibrate_bucket_wall(config)
 
     print("\nУстановка ковша в поисковое положение...")

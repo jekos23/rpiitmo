@@ -14,10 +14,11 @@ app = Flask(__name__)
 
 DEFAULT_CONFIG = {
     "lidar_port": "/dev/ttyUSB0",
-    "arduino_port": "/dev/ttyACM0",
     "camera_port": "/dev/video0",
     "camera_stream_host": "0.0.0.0",
     "camera_stream_port": 5000,
+    "servo_pca_address": "0x41",
+    "bucket_servo_channel": 0,
     "map_choice": "3",
     "yolo_choice": "1",
     "selected_model_name": "",
@@ -260,8 +261,11 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
         <label for="lidar_port" id="labelLidarPort">LiDAR port</label>
         <input id="lidar_port" />
 
-        <label for="arduino_port" id="labelArduinoPort">Arduino port</label>
-        <input id="arduino_port" />
+        <label for="servo_pca_address" id="labelServoPcaAddress">Servo PCA I2C address</label>
+        <input id="servo_pca_address" />
+
+        <label for="bucket_servo_channel" id="labelBucketServoChannel">Bucket servo channel</label>
+        <input id="bucket_servo_channel" type="number" min="0" max="15" />
 
         <label for="camera_port" id="labelCameraPort">Camera port</label>
         <input id="camera_port" />
@@ -318,7 +322,7 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
           <div class="stat-item"><span id="labelStatMode">Mode</span><strong id="statMode">--</strong></div>
           <div class="stat-item"><span id="labelStatVideo">Camera stream</span><strong id="statVideo">--</strong></div>
           <div class="stat-item"><span id="labelStatTrash">Trash detector</span><strong id="statTrash">--</strong></div>
-          <div class="stat-item"><span id="labelStatArduino">Bucket Arduino</span><strong id="statArduino">--</strong></div>
+          <div class="stat-item"><span id="labelStatServoController">Bucket servo controller</span><strong id="statServoController">--</strong></div>
           <div class="stat-item"><span id="labelStatModel">Active model</span><strong id="statModel">--</strong></div>
           <div class="stat-item"><span id="labelStatRouteSource">Route source</span><strong id="statRouteSource">--</strong></div>
           <div class="stat-item"><span id="labelStatRoute">Route status</span><strong id="statRoute">--</strong></div>
@@ -383,6 +387,9 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
     let lastStatus = null;
     const translations = {
       ru: {
+        servo_pca_address: 'I2C адрес PCA сервы',
+        bucket_servo_channel: 'Канал сервопривода ковша',
+        bucket_servo_controller: 'Контроллер сервы ковша',
         hero_title: 'Станция управления роботом',
         hero_subtitle: 'Запускай робота, смотри видеопоток и переключайся между автопилотом и ручным управлением из локальной сети.',
         launch_settings: 'Параметры запуска',
@@ -470,6 +477,8 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
         launch_settings: 'Launch Settings',
         lidar_port: 'LiDAR port',
         arduino_port: 'Arduino port',
+        servo_pca_address: 'Servo PCA I2C address',
+        bucket_servo_channel: 'Bucket servo channel',
         camera_port: 'Camera port',
         camera_stream_port: 'Camera stream port',
         run_mode: 'Run mode',
@@ -497,6 +506,7 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
         camera_stream: 'Camera stream',
         trash_detector: 'Trash detector',
         bucket_arduino: 'Bucket Arduino',
+        bucket_servo_controller: 'Bucket servo controller',
         active_model: 'Active model',
         route_status: 'Route status',
         live_video: 'Live Video',
@@ -578,7 +588,8 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
         heroSubtitle: 'hero_subtitle',
         launchSettingsTitle: 'launch_settings',
         labelLidarPort: 'lidar_port',
-        labelArduinoPort: 'arduino_port',
+        labelServoPcaAddress: 'servo_pca_address',
+        labelBucketServoChannel: 'bucket_servo_channel',
         labelCameraPort: 'camera_port',
         labelCameraStreamPort: 'camera_stream_port',
         labelRunMode: 'run_mode',
@@ -605,7 +616,7 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
         labelStatMode: 'mode',
         labelStatVideo: 'camera_stream',
         labelStatTrash: 'trash_detector',
-        labelStatArduino: 'bucket_arduino',
+        labelStatServoController: 'bucket_servo_controller',
         labelStatModel: 'active_model',
         labelStatRouteSource: 'route_source',
         labelStatRoute: 'route_status',
@@ -663,7 +674,8 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
     function formPayload() {
       return {
         lidar_port: document.getElementById('lidar_port').value.trim(),
-        arduino_port: document.getElementById('arduino_port').value.trim(),
+        servo_pca_address: document.getElementById('servo_pca_address').value.trim(),
+        bucket_servo_channel: parseInt(document.getElementById('bucket_servo_channel').value || '0', 10),
         camera_port: document.getElementById('camera_port').value.trim(),
         camera_stream_port: parseInt(document.getElementById('camera_stream_port').value || '5000', 10),
         run_mode: document.getElementById('run_mode').value,
@@ -680,7 +692,8 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
     function applyConfig(config) {
       if (!config) return;
       document.getElementById('lidar_port').value = config.lidar_port || '';
-      document.getElementById('arduino_port').value = config.arduino_port || '';
+      document.getElementById('servo_pca_address').value = config.servo_pca_address || '0x41';
+      document.getElementById('bucket_servo_channel').value = config.bucket_servo_channel ?? 0;
       document.getElementById('camera_port').value = config.camera_port || '';
       document.getElementById('camera_stream_port').value = config.camera_stream_port || 5000;
       document.getElementById('run_mode').value = String(config.run_mode || '2');
@@ -741,7 +754,7 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
       document.getElementById('statMode').textContent = translateMode(status.mode);
       document.getElementById('statVideo').textContent = status.video_stream_active ? status.stream_url : t('stopped');
       document.getElementById('statTrash').textContent = translateTrashSummary(status.trash_summary);
-      document.getElementById('statArduino').textContent = status.bucket_arduino_connected ? t('connected') : t('disconnected');
+      document.getElementById('statServoController').textContent = status.bucket_servo_controller_connected ? t('connected') : t('disconnected');
       document.getElementById('statModel').textContent = status.selected_model_name || t('phone_none');
       document.getElementById('statRouteSource').textContent = routeSourceLabels[status.route_source_mode] || status.route_source_mode || 'disabled';
       document.getElementById('statRoute').textContent = routeSummary;
@@ -861,9 +874,21 @@ class RobotManager:
     def _normalize_config(self, config: Dict[str, Any]) -> Dict[str, Any]:
         normalized = self._defaults()
         normalized.update({k: v for k, v in config.items() if v is not None})
+        normalized.pop("arduino_port", None)
+        normalized.pop("arduino_baudrate", None)
+        normalized.pop("arduino_timeout_sec", None)
+        normalized.pop("arduino_boot_wait_sec", None)
         normalized["lidar_port"] = str(normalized.get("lidar_port", "")).strip()
-        normalized["arduino_port"] = str(normalized.get("arduino_port", "")).strip()
         normalized["camera_port"] = str(normalized.get("camera_port", "")).strip()
+        normalized["servo_pca_address"] = str(
+            normalized.get("servo_pca_address", "0x41")
+        ).strip() or "0x41"
+        try:
+            normalized["bucket_servo_channel"] = max(
+                0, min(15, int(normalized.get("bucket_servo_channel", 0)))
+            )
+        except (TypeError, ValueError):
+            normalized["bucket_servo_channel"] = 0
         normalized["camera_stream_host"] = str(
             normalized.get("camera_stream_host", "0.0.0.0")
         ).strip() or "0.0.0.0"
@@ -1025,11 +1050,6 @@ class RobotManager:
                 self.message = "Start failed."
                 return self.status()
 
-            if not config["arduino_port"]:
-                self.error = "Arduino port is required."
-                self.message = "Start failed."
-                return self.status()
-
             if not config["camera_port"]:
                 self.error = "Camera port is required."
                 self.message = "Start failed."
@@ -1052,8 +1072,8 @@ class RobotManager:
             try:
                 robot.start_video_streamer(config)
 
-                if not robot.init_bucket_arduino(config):
-                    raise RuntimeError("Failed to connect to bucket Arduino.")
+                if not robot.init_bucket_servo_controller(config):
+                    raise RuntimeError("Failed to connect to bucket servo PCA9685 controller.")
 
                 robot.move_bucket_wall_to_search_position()
                 robot.set_servo_bucket(down=True)
@@ -1325,7 +1345,8 @@ class RobotManager:
             "uptime_sec": uptime_sec,
             "video_stream_active": video_stream_active,
             "stream_url": stream_url,
-            "bucket_arduino_connected": robot.bucket_arduino is not None,
+            "bucket_arduino_connected": False,
+            "bucket_servo_controller_connected": robot.is_bucket_servo_controller_ready(),
             "trash_summary": trash_summary,
             "detector_debug": detector_debug,
             "selected_model_name": self.selected_model_name or config.get("selected_model_name", ""),
