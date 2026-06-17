@@ -1478,6 +1478,66 @@ def get_slam_route_status():
         "guidance": route_guidance,
     }
 
+
+def _cleanup_completed_trash_targets(completed_targets):
+    now = time.time()
+    expired_ids = [
+        target_id
+        for target_id, expires_at in completed_targets.items()
+        if expires_at <= now
+    ]
+    for target_id in expired_ids:
+        completed_targets.pop(target_id, None)
+    return set(completed_targets.keys())
+
+
+def _remember_completed_trash_target(
+    completed_targets,
+    target_id,
+    cooldown_sec=8.0,
+):
+    if target_id is None:
+        return
+    try:
+        target_id = int(target_id)
+    except (TypeError, ValueError):
+        return
+    completed_targets[target_id] = time.time() + max(1.0, float(cooldown_sec))
+
+
+def _get_detector_target(detector, preferred_id=None, exclude_ids=None):
+    if detector is None:
+        return None
+
+    excluded = set(exclude_ids or [])
+
+    if preferred_id is not None and hasattr(detector, "get_target_by_id"):
+        target = detector.get_target_by_id(preferred_id)
+        if target is not None:
+            return target
+
+    if hasattr(detector, "get_primary_target"):
+        return detector.get_primary_target(exclude_ids=excluded)
+
+    if getattr(detector, "trash_detected", False):
+        fallback_target_id = getattr(detector, "current_target_id", 1) or 1
+        if fallback_target_id in excluded:
+            return None
+        return {
+            "id": fallback_target_id,
+            "angle": float(getattr(detector, "trash_angle", 0.0)),
+            "in_collection_zone": bool(
+                getattr(detector, "trash_in_collection_zone", False)
+            ),
+            "confidence": float(getattr(detector, "trash_confidence", 0.0)),
+            "confirmed_for_ms": int(
+                getattr(detector, "trash_confirmed_for_ms", 0) or 0
+            ),
+        }
+
+    return None
+
+
 def slam_thread_function(driver, show_map):
     global latest_slam_pose
     slam = OnlineFastSlam(show_map=show_map)
@@ -1635,6 +1695,9 @@ def autonomous_loop(driver, speed, detector=None):
     
     global current_mode, current_speed
     state = "FORWARD"
+    active_trash_target_id = None
+    active_trash_angle = 0.0
+    completed_trash_targets = {}
     
     SAFE_DIST_FRONT = 0.67 # Увеличили дистанцию остановки перед стеной еще на 2см
     
@@ -1642,48 +1705,86 @@ def autonomous_loop(driver, speed, detector=None):
         while driver.running:
             # --- ЛОГИКА СБОРА МУСОРА (YOLO) ---
             scan = driver.get_latest_scan()
+            ignored_target_ids = _cleanup_completed_trash_targets(
+                completed_trash_targets
+            )
             route_state = get_route_state(detector)
             route_source_mode = route_state["source_mode"]
             route_enabled = bool(route_state["route_enabled"])
             route_within_corridor = bool(route_state["within_corridor"])
             route_guidance = route_state.get("guidance")
+            active_target = _get_detector_target(
+                detector,
+                preferred_id=active_trash_target_id,
+                exclude_ids=ignored_target_ids,
+            )
             
             if (
-                detector
-                and detector.trash_detected
+                active_target
                 and (not route_enabled or route_within_corridor)
                 and state not in ["TRASH_APPROACH", "TRASH_COLLECT"]
             ):
-                print(f"[АВТОПИЛОТ] МУСОР ОБНАРУЖЕН (Угол: {detector.trash_angle:.1f})! Начинаю сближение.")
+                print(f"[АВТОПИЛОТ] МУСОР ОБНАРУЖЕН (Угол: {active_trash_angle:.1f})! Начинаю сближение.")
+                active_trash_target_id = active_target.get("id")
+                active_trash_angle = float(active_target.get("angle", 0.0))
                 state = "TRASH_APPROACH"
                 
             if state == "TRASH_APPROACH":
                 if route_enabled and not route_within_corridor:
                     print("[AUTOPILOT] Target is outside the active route corridor. Returning to route.")
                     state = "FORWARD"
+                    active_trash_target_id = None
                     stop_all()
                     time.sleep(0.1)
                     continue
 
-                dist = get_lidar_distance(scan, detector.trash_angle)
-                target_in_zone = bool(getattr(detector, "trash_in_collection_zone", False))
-                print(f"[АВТОПИЛОТ] Сближение... Дистанция по лидару: {dist:.2f}м, Угол: {detector.trash_angle:.1f}°")
+                target = _get_detector_target(
+                    detector,
+                    preferred_id=active_trash_target_id,
+                    exclude_ids=ignored_target_ids,
+                )
+                if target is None:
+                    replacement_target = _get_detector_target(
+                        detector,
+                        exclude_ids=ignored_target_ids,
+                    )
+                    if replacement_target is not None:
+                        active_trash_target_id = replacement_target.get("id")
+                        target = replacement_target
+
+                if target is None:
+                    dist = get_lidar_distance(scan, active_trash_angle)
+                    if dist < 0.25:
+                        print("[AUTO] Trash is very close, switching to blind collect.")
+                        state = "TRASH_COLLECT"
+                    else:
+                        state = "FORWARD"
+                        active_trash_target_id = None
+                        stop_all()
+                    time.sleep(0.1)
+                    continue
+
+                active_trash_target_id = target.get("id")
+                active_trash_angle = float(target.get("angle", 0.0))
+                dist = get_lidar_distance(scan, active_trash_angle)
+                target_in_zone = bool(target.get("in_collection_zone", False))
+                print(f"[АВТОПИЛОТ] Сближение... Дистанция по лидару: {dist:.2f}м, Угол: {active_trash_angle:.1f}°")
                 
                 # Если мусор слишком близко или потерян из виду вблизи (слепая зона)
                 if target_in_zone and dist < 0.40:
                     print("[АВТОПИЛОТ] Мусор в зоне захвата!")
                     state = "TRASH_COLLECT"
-                elif not detector.trash_detected and dist < 0.25:
+                elif dist < 0.25:
                     print("[AUTO] Trash is very close, switching to blind collect.")
                     state = "TRASH_COLLECT"
-                elif not detector.trash_detected and dist >= 0.4:
+                elif dist >= 0.4 and not target_in_zone:
                     print("[АВТОПИЛОТ] Ложное срабатывание или мусор утерян вдали. Возврат.")
                     state = "FORWARD"
                 else:
                     # Подруливание (используем 50% скорости для плавности)
-                    if detector.trash_angle > 10:
+                    if active_trash_angle > 10:
                         set_motors(speed//2, 0, 0, speed//2) # Вправо
-                    elif detector.trash_angle < -10:
+                    elif active_trash_angle < -10:
                         set_motors(0, speed//2, speed//2, 0) # Влево
                     else:
                         set_motors(speed//2, 0, speed//2, 0) # Прямо
@@ -1691,16 +1792,37 @@ def autonomous_loop(driver, speed, detector=None):
                 continue
                 
             elif state == "TRASH_COLLECT":
+                collected_target_id = active_trash_target_id
                 stop_all()
                 time.sleep(0.5) # Даем моторам полностью остановиться перед сменой частоты
                 print("[АВТОПИЛОТ] Запускаю ковш!")
                 run_bucket_collect_cycle()
                 print("[АВТОПИЛОТ] Мусор собран! Возврат к исследованию.")
+                _remember_completed_trash_target(
+                    completed_trash_targets,
+                    collected_target_id,
+                )
                 state = "FORWARD"
                 if detector:
+                    if hasattr(detector, "ignore_target"):
+                        detector.ignore_target(collected_target_id, cooldown_sec=8.0)
                     detector.trash_detected = False
                     if hasattr(detector, "trash_in_collection_zone"):
                         detector.trash_in_collection_zone = False
+                active_trash_target_id = None
+                next_target = _get_detector_target(
+                    detector,
+                    exclude_ids=_cleanup_completed_trash_targets(
+                        completed_trash_targets
+                    ),
+                )
+                if (
+                    next_target is not None
+                    and (not route_enabled or route_within_corridor)
+                ):
+                    active_trash_target_id = next_target.get("id")
+                    active_trash_angle = float(next_target.get("angle", 0.0))
+                    state = "TRASH_APPROACH"
                 continue
 
             # --- ЛОГИКА ИССЛЕДОВАТЕЛЯ С ЛИДАРОМ ---
