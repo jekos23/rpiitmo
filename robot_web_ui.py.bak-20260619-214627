@@ -144,11 +144,6 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
       color: var(--text);
       margin-bottom: 12px;
     }
-    input:focus, select:focus {
-      outline: none;
-      border-color: rgba(61,220,151,0.55);
-      box-shadow: 0 0 0 3px rgba(61,220,151,0.14);
-    }
     .button-row {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -163,11 +158,6 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
       cursor: pointer;
       color: #041118;
       background: var(--accent);
-    }
-    button:disabled {
-      cursor: not-allowed;
-      opacity: 0.52;
-      filter: saturate(0.7);
     }
     button.secondary {
       background: #d7e4ef;
@@ -191,23 +181,6 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
       border-radius: 18px;
       border: 1px solid var(--line);
       background: #02070b;
-    }
-    .video-shell {
-      position: relative;
-    }
-    .video-empty {
-      position: absolute;
-      inset: 0;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 20px;
-      text-align: center;
-      color: var(--muted);
-      font-size: 14px;
-      pointer-events: none;
-      background: linear-gradient(180deg, rgba(2,7,11,0.1), rgba(2,7,11,0.38));
-      border-radius: 18px;
     }
     .split {
       display: grid;
@@ -246,47 +219,6 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
     .full {
       grid-column: 1 / -1;
     }
-    .field-hint,
-    .mode-note,
-    .manual-hint {
-      color: var(--muted);
-      font-size: 12px;
-      line-height: 1.45;
-      margin: -6px 0 12px;
-    }
-    .panel-header {
-      display: flex;
-      align-items: flex-start;
-      justify-content: space-between;
-      gap: 16px;
-      margin-bottom: 14px;
-    }
-    .status-grid {
-      display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 10px;
-      margin-bottom: 18px;
-    }
-    .mini-stat {
-      padding: 12px;
-      border-radius: 14px;
-      background: rgba(255,255,255,0.04);
-      border: 1px solid rgba(255,255,255,0.04);
-    }
-    .mini-stat span {
-      display: block;
-      color: var(--muted);
-      font-size: 12px;
-      margin-bottom: 4px;
-    }
-    .mini-stat strong {
-      display: block;
-      font-size: 14px;
-      line-height: 1.35;
-    }
-    [data-drive] {
-      touch-action: manipulation;
-    }
     .log {
       min-height: 70px;
       white-space: pre-wrap;
@@ -303,14 +235,6 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
       .hero {
         flex-direction: column;
         align-items: flex-start;
-      }
-      .status-grid {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-      }
-    }
-    @media (max-width: 620px) {
-      .status-grid {
-        grid-template-columns: 1fr;
       }
     }
   </style>
@@ -354,7 +278,6 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
           <option value="2" id="optionAutopilot">Autopilot</option>
           <option value="1" id="optionManual">Manual</option>
         </select>
-        <div id="modeNote" class="mode-note">Autopilot starts the full runtime, manual mode keeps the robot ready for web controls.</div>
 
         <label for="auto_speed" id="labelAutoSpeed">Autopilot speed</label>
         <input id="auto_speed" type="number" min="0" max="4095" />
@@ -383,8 +306,7 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
         <input id="slam_route_record_step_m" type="number" min="0.1" max="2" step="0.05" />
 
         <label for="selected_model_name" id="labelModelName">Local model folder name</label>
-        <select id="selected_model_name"></select>
-        <div id="modelHint" class="field-hint">The list is loaded from the Raspberry Pi automatically.</div>
+        <input id="selected_model_name" placeholder="optional" />
 
         <div class="button-row">
           <button class="secondary" onclick="saveConfig()" id="buttonSaveConfig">Save config</button>
@@ -408,48 +330,22 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
       </section>
 
       <section class="panel">
-        <div class="status-grid">
-          <div class="mini-stat">
-            <span id="labelStatLidar">LiDAR</span>
-            <strong id="statLidar">--</strong>
-          </div>
-          <div class="mini-stat">
-            <span id="labelStatUptime">Uptime</span>
-            <strong id="statUptime">--</strong>
-          </div>
-          <div class="mini-stat">
-            <span id="labelStatSpeed">Speed</span>
-            <strong id="statSpeed">--</strong>
-          </div>
-          <div class="mini-stat">
-            <span id="labelStatPose">SLAM pose</span>
-            <strong id="statPose">--</strong>
-          </div>
-        </div>
         <div class="split">
           <div>
-            <div class="panel-header">
-              <div>
-                <h2 id="liveVideoTitle">Live Video</h2>
-              </div>
-            </div>
-            <div class="video-shell">
-              <img id="videoFrame" class="video" alt="video stream" />
-              <div id="videoOverlay" class="video-empty">Waiting for live stream...</div>
-            </div>
+            <h2 id="liveVideoTitle">Live Video</h2>
+            <img id="videoFrame" class="video" alt="video stream" />
           </div>
           <div>
             <h2 id="manualDriveTitle">Manual Drive</h2>
-            <div id="manualHint" class="manual-hint">Hold a direction button or use WASD / arrow keys. Release to stop.</div>
             <div class="manual-grid">
               <button class="blank">.</button>
-              <button class="dark" type="button" data-drive="forward" id="buttonForward">Forward</button>
+              <button class="dark" onclick="drive('forward')" id="buttonForward">Forward</button>
               <button class="blank">.</button>
-              <button class="dark" type="button" data-drive="left" id="buttonLeft">Left</button>
-              <button class="danger" type="button" data-drive="stop" id="buttonStop">STOP</button>
-              <button class="dark" type="button" data-drive="right" id="buttonRight">Right</button>
+              <button class="dark" onclick="drive('left')" id="buttonLeft">Left</button>
+              <button class="danger" onclick="drive('stop')" id="buttonStop">STOP</button>
+              <button class="dark" onclick="drive('right')" id="buttonRight">Right</button>
               <button class="blank">.</button>
-              <button class="dark" type="button" data-drive="backward" id="buttonBackward">Backward</button>
+              <button class="dark" onclick="drive('backward')" id="buttonBackward">Backward</button>
               <button class="blank">.</button>
             </div>
 
@@ -494,19 +390,6 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
         servo_pca_address: 'I2C адрес PCA сервы',
         bucket_servo_channel: 'Канал сервопривода ковша',
         bucket_servo_controller: 'Контроллер сервы ковша',
-        local_models_hint: 'Список моделей подгружается с Raspberry Pi автоматически.',
-        auto_model: 'Автовыбор первой доступной модели',
-        no_models: 'Локальные модели не найдены',
-        mode_note_manual: 'В ручном режиме доступны веб-кнопки управления и клавиши WASD/стрелки.',
-        mode_note_autopilot: 'Автопилот запускает LiDAR, камеру и детектор сразу после старта.',
-        manual_hold_hint: 'Удерживай кнопку направления или используй WASD / стрелки. Отпусти, чтобы остановить робота.',
-        manual_locked: 'Ручное управление станет доступно после запуска робота в manual mode.',
-        manual_ready: 'Ручное управление активно.',
-        lidar_status: 'LiDAR',
-        uptime: 'Время работы',
-        speed: 'Скорость',
-        pose: 'Поза SLAM',
-        video_waiting: 'Ожидание живого видеопотока...',
         hero_title: 'Станция управления роботом',
         hero_subtitle: 'Запускай робота, смотри видеопоток и переключайся между автопилотом и ручным управлением из локальной сети.',
         launch_settings: 'Параметры запуска',
@@ -624,19 +507,6 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
         trash_detector: 'Trash detector',
         bucket_arduino: 'Bucket Arduino',
         bucket_servo_controller: 'Bucket servo controller',
-        local_models_hint: 'The list is loaded from the Raspberry Pi automatically.',
-        auto_model: 'Auto-pick the first available model',
-        no_models: 'No local models found',
-        mode_note_manual: 'Manual mode keeps web drive buttons and WASD / arrow keys active.',
-        mode_note_autopilot: 'Autopilot starts LiDAR, camera, and detector immediately.',
-        manual_hold_hint: 'Hold a direction button or use WASD / arrow keys. Release to stop the robot.',
-        manual_locked: 'Manual drive becomes available after starting the robot in manual mode.',
-        manual_ready: 'Manual drive is active.',
-        lidar_status: 'LiDAR',
-        uptime: 'Uptime',
-        speed: 'Speed',
-        pose: 'SLAM pose',
-        video_waiting: 'Waiting for live stream...',
         active_model: 'Active model',
         route_status: 'Route status',
         live_video: 'Live Video',
@@ -688,36 +558,6 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
       },
     };
     let currentLanguage = localStorage.getItem('robot_ui_language') || 'ru';
-    const touchedFields = new Set();
-    const configFieldIds = [
-      'lidar_port',
-      'servo_pca_address',
-      'bucket_servo_channel',
-      'camera_port',
-      'camera_stream_port',
-      'run_mode',
-      'auto_speed',
-      'manual_speed',
-      'yolo_choice',
-      'route_source_mode',
-      'route_corridor_m',
-      'slam_route_record_step_m',
-      'selected_model_name',
-    ];
-    const keyDriveMap = {
-      ArrowUp: 'forward',
-      KeyW: 'forward',
-      ArrowDown: 'backward',
-      KeyS: 'backward',
-      ArrowLeft: 'left',
-      KeyA: 'left',
-      ArrowRight: 'right',
-      KeyD: 'right',
-      Space: 'stop',
-    };
-    let activeDriveAction = null;
-    let activeDriveKeyCode = null;
-    let manualDriveEnabled = false;
 
     function t(key) {
       return (translations[currentLanguage] && translations[currentLanguage][key])
@@ -780,10 +620,6 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
         labelStatModel: 'active_model',
         labelStatRouteSource: 'route_source',
         labelStatRoute: 'route_status',
-        labelStatLidar: 'lidar_status',
-        labelStatUptime: 'uptime',
-        labelStatSpeed: 'speed',
-        labelStatPose: 'pose',
         liveVideoTitle: 'live_video',
         manualDriveTitle: 'manual_drive',
         buttonForward: 'forward',
@@ -811,14 +647,7 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
         }
       });
 
-      document.getElementById('modeNote').textContent = document.getElementById('run_mode').value === '1'
-        ? t('mode_note_manual')
-        : t('mode_note_autopilot');
-      document.getElementById('manualHint').textContent = manualDriveEnabled
-        ? t('manual_hold_hint')
-        : t('manual_locked');
-      document.getElementById('modelHint').textContent = t('local_models_hint');
-      document.getElementById('videoOverlay').textContent = t('video_waiting');
+      document.getElementById('selected_model_name').placeholder = t('optional');
       const scoopDownButton = document.querySelector('[onclick="bucket(\'scoop_down\')"]');
       const scoopUpButton = document.querySelector('[onclick="bucket(\'scoop_up\')"]');
       if (scoopDownButton) scoopDownButton.textContent = t('scoop_down');
@@ -842,64 +671,6 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
       }
     }
 
-    function markFieldTouched(event) {
-      touchedFields.add(event.target.id);
-      if (event.target.id === 'run_mode') {
-        document.getElementById('modeNote').textContent = event.target.value === '1'
-          ? t('mode_note_manual')
-          : t('mode_note_autopilot');
-      }
-      if (event.target.id === 'yolo_choice') {
-        updateModelSelectEnabled();
-      }
-    }
-
-    function clearTouchedFields() {
-      touchedFields.clear();
-    }
-
-    function bindConfigInputs() {
-      configFieldIds.forEach((id) => {
-        const element = document.getElementById(id);
-        if (!element) return;
-        element.addEventListener('input', markFieldTouched);
-        element.addEventListener('change', markFieldTouched);
-      });
-      updateModelSelectEnabled();
-    }
-
-    function updateModelSelectEnabled() {
-      const source = document.getElementById('yolo_choice').value;
-      document.getElementById('selected_model_name').disabled = source !== '2';
-    }
-
-    function setFieldValue(id, value, force) {
-      const element = document.getElementById(id);
-      if (!element) return;
-      if (!force && touchedFields.has(id)) return;
-      element.value = value;
-    }
-
-    function updateModelOptions(models, selectedValue, force) {
-      const select = document.getElementById('selected_model_name');
-      if (!force && touchedFields.has('selected_model_name')) {
-        return;
-      }
-      const safeModels = Array.isArray(models) ? models : [];
-      const preferredValue = force ? (selectedValue || '') : (select.value || selectedValue || '');
-      const optionMarkup = [
-        `<option value="">${t('auto_model')}</option>`,
-        ...safeModels.map((name) => `<option value="${name.replaceAll('"', '&quot;')}">${name}</option>`),
-      ];
-      select.innerHTML = optionMarkup.join('');
-      if (!safeModels.length) {
-        select.innerHTML = `<option value="">${t('no_models')}</option>`;
-      }
-      const hasPreferred = Array.from(select.options).some((option) => option.value === preferredValue);
-      select.value = hasPreferred ? preferredValue : '';
-      updateModelSelectEnabled();
-    }
-
     function formPayload() {
       return {
         lidar_port: document.getElementById('lidar_port').value.trim(),
@@ -918,25 +689,21 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
       };
     }
 
-    function applyConfig(config, { force = false } = {}) {
+    function applyConfig(config) {
       if (!config) return;
-      setFieldValue('lidar_port', config.lidar_port || '', force);
-      setFieldValue('servo_pca_address', config.servo_pca_address || '0x41', force);
-      setFieldValue('bucket_servo_channel', config.bucket_servo_channel ?? 0, force);
-      setFieldValue('camera_port', config.camera_port || '', force);
-      setFieldValue('camera_stream_port', config.camera_stream_port ?? 5000, force);
-      setFieldValue('run_mode', String(config.run_mode || '2'), force);
-      setFieldValue('auto_speed', config.auto_speed ?? 1500, force);
-      setFieldValue('manual_speed', config.manual_speed ?? 1400, force);
-      setFieldValue('yolo_choice', String(config.yolo_choice || '1'), force);
-      setFieldValue('route_source_mode', String(config.route_source_mode || 'none'), force);
-      setFieldValue('route_corridor_m', config.route_corridor_m ?? 3.0, force);
-      setFieldValue('slam_route_record_step_m', config.slam_route_record_step_m ?? 0.35, force);
-      updateModelOptions(config.available_models || [], config.selected_model_name || '', force);
-      document.getElementById('modeNote').textContent = document.getElementById('run_mode').value === '1'
-        ? t('mode_note_manual')
-        : t('mode_note_autopilot');
-      updateModelSelectEnabled();
+      document.getElementById('lidar_port').value = config.lidar_port || '';
+      document.getElementById('servo_pca_address').value = config.servo_pca_address || '0x41';
+      document.getElementById('bucket_servo_channel').value = config.bucket_servo_channel ?? 0;
+      document.getElementById('camera_port').value = config.camera_port || '';
+      document.getElementById('camera_stream_port').value = config.camera_stream_port || 5000;
+      document.getElementById('run_mode').value = String(config.run_mode || '2');
+      document.getElementById('auto_speed').value = config.auto_speed || 1500;
+      document.getElementById('manual_speed').value = config.manual_speed || 1400;
+      document.getElementById('yolo_choice').value = String(config.yolo_choice || '1');
+      document.getElementById('route_source_mode').value = String(config.route_source_mode || 'none');
+      document.getElementById('route_corridor_m').value = config.route_corridor_m || 3.0;
+      document.getElementById('slam_route_record_step_m').value = config.slam_route_record_step_m || 0.35;
+      document.getElementById('selected_model_name').value = config.selected_model_name || '';
     }
 
     function setLog(text) {
@@ -950,59 +717,15 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
       setLog(`${t('error_prefix')}: ${details}`);
     }
 
-    function formatUptime(seconds) {
-      if (typeof seconds !== 'number') return '--';
-      const hrs = Math.floor(seconds / 3600);
-      const mins = Math.floor((seconds % 3600) / 60);
-      const secs = seconds % 60;
-      if (hrs > 0) {
-        return `${hrs}h ${mins}m ${secs}s`;
-      }
-      if (mins > 0) {
-        return `${mins}m ${secs}s`;
-      }
-      return `${secs}s`;
-    }
-
-    function formatPose(pose) {
-      if (!pose || typeof pose !== 'object') return '--';
-      const x = typeof pose.x === 'number' ? pose.x.toFixed(2) : '--';
-      const y = typeof pose.y === 'number' ? pose.y.toFixed(2) : '--';
-      const theta = typeof pose.theta === 'number' ? pose.theta.toFixed(2) : '--';
-      return `${x}, ${y}, ${theta}`;
-    }
-
-    function updateDriveControls(status) {
-      manualDriveEnabled = Boolean(status.running && status.mode === 'manual');
-      document.querySelectorAll('[data-drive]').forEach((button) => {
-        const isStop = button.dataset.drive === 'stop';
-        button.disabled = !manualDriveEnabled && !isStop;
-      });
-      document.getElementById('manualHint').textContent = manualDriveEnabled
-        ? t('manual_hold_hint')
-        : t('manual_locked');
-      if (!manualDriveEnabled) {
-        activeDriveAction = null;
-        activeDriveKeyCode = null;
-      }
-    }
-
-    function updateStatusUi(status, { forceConfig = false } = {}) {
+    function updateStatusUi(status) {
       lastStatus = status;
-      applyConfig(
-        {
-          ...(status.config || {}),
-          available_models: status.available_models || [],
-        },
-        { force: forceConfig },
-      );
+      applyConfig(status.config);
       const routeSourceLabels = {
         none: t('disabled'),
         slam: t('route_slam'),
         gps: t('route_gps'),
       };
       let routeSummary = t('disabled');
-      let modelSummary = t('disabled');
       if (status.route_source_mode === 'slam') {
         routeSummary = `${status.slam_route_points || 0} ${t('points_short')}`;
         if (typeof status.route_distance_m === 'number') {
@@ -1020,15 +743,6 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
           routeSummary += status.route_within_corridor ? ` | ${t('inside_corridor')}` : ` | ${t('outside_corridor')}`;
         }
       }
-      if (status.selected_model_name) {
-        modelSummary = status.selected_model_name;
-      } else if (status.config?.yolo_choice === '2') {
-        modelSummary = (status.available_models && status.available_models.length)
-          ? t('auto_model')
-          : t('no_models');
-      } else if (status.config?.yolo_choice === '1') {
-        modelSummary = t('phone_none');
-      }
 
       document.getElementById('heroStatus').textContent = status.running
         ? `${t('running')}: ${translateMode(status.mode)}`
@@ -1041,13 +755,9 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
       document.getElementById('statVideo').textContent = status.video_stream_active ? status.stream_url : t('stopped');
       document.getElementById('statTrash').textContent = translateTrashSummary(status.trash_summary);
       document.getElementById('statServoController').textContent = status.bucket_servo_controller_connected ? t('connected') : t('disconnected');
-      document.getElementById('statModel').textContent = modelSummary;
+      document.getElementById('statModel').textContent = status.selected_model_name || t('phone_none');
       document.getElementById('statRouteSource').textContent = routeSourceLabels[status.route_source_mode] || status.route_source_mode || 'disabled';
       document.getElementById('statRoute').textContent = routeSummary;
-      document.getElementById('statLidar').textContent = status.lidar_running ? t('connected') : t('disconnected');
-      document.getElementById('statUptime').textContent = formatUptime(status.uptime_sec);
-      document.getElementById('statSpeed').textContent = typeof status.current_speed === 'number' ? String(status.current_speed) : '--';
-      document.getElementById('statPose').textContent = formatPose(status.slam_pose);
 
       const logLines = [
         status.message || '',
@@ -1059,7 +769,6 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
       setLog(logLines.join('\\n'));
 
       const video = document.getElementById('videoFrame');
-      const overlay = document.getElementById('videoOverlay');
       if (status.stream_url && video.dataset.currentSrc !== status.stream_url) {
         video.src = status.stream_url + '?t=' + Date.now();
         video.dataset.currentSrc = status.stream_url;
@@ -1068,8 +777,6 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
         video.removeAttribute('src');
         video.dataset.currentSrc = '';
       }
-      overlay.style.display = status.stream_url ? 'none' : 'flex';
-      updateDriveControls(status);
     }
 
     async function api(path, payload) {
@@ -1083,8 +790,7 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
           throw new Error(`HTTP ${response.status}`);
         }
         const data = await response.json();
-        clearTouchedFields();
-        updateStatusUi(data, { forceConfig: true });
+        updateStatusUi(data);
         return data;
       } catch (error) {
         setFetchError(error);
@@ -1134,86 +840,6 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
       }
     }
 
-    function engageDrive(action, keyCode = null) {
-      if (!manualDriveEnabled && action !== 'stop') {
-        return;
-      }
-      if (activeDriveAction === action && activeDriveKeyCode === keyCode) {
-        return;
-      }
-      activeDriveAction = action;
-      activeDriveKeyCode = keyCode;
-      drive(action);
-    }
-
-    function releaseDrive(keyCode = null) {
-      if (keyCode && activeDriveKeyCode && keyCode !== activeDriveKeyCode) {
-        return;
-      }
-      if (!activeDriveAction) {
-        return;
-      }
-      activeDriveAction = null;
-      activeDriveKeyCode = null;
-      drive('stop');
-    }
-
-    function bindDriveControls() {
-      document.querySelectorAll('[data-drive]').forEach((button) => {
-        const action = button.dataset.drive;
-        if (action === 'stop') {
-          button.addEventListener('click', () => {
-            activeDriveAction = null;
-            activeDriveKeyCode = null;
-            drive('stop');
-          });
-          return;
-        }
-        button.addEventListener('pointerdown', (event) => {
-          event.preventDefault();
-          button.setPointerCapture?.(event.pointerId);
-          engageDrive(action);
-        });
-        ['pointerup', 'pointercancel', 'lostpointercapture'].forEach((name) => {
-          button.addEventListener(name, () => releaseDrive());
-        });
-      });
-
-      document.addEventListener('keydown', (event) => {
-        const action = keyDriveMap[event.code];
-        if (!action || event.repeat) {
-          return;
-        }
-        const tag = document.activeElement?.tagName;
-        if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') {
-          return;
-        }
-        event.preventDefault();
-        if (action === 'stop') {
-          releaseDrive();
-          return;
-        }
-        engageDrive(action, event.code);
-      });
-
-      document.addEventListener('keyup', (event) => {
-        if (!keyDriveMap[event.code]) {
-          return;
-        }
-        event.preventDefault();
-        releaseDrive(event.code);
-      });
-
-      window.addEventListener('blur', () => releaseDrive());
-      document.addEventListener('visibilitychange', () => {
-        if (document.hidden) {
-          releaseDrive();
-        }
-      });
-    }
-
-    bindConfigInputs();
-    bindDriveControls();
     setLanguage(currentLanguage);
     refreshStatus();
     setInterval(refreshStatus, 1200);
@@ -1736,7 +1362,6 @@ class RobotManager:
             "slam_route_recording": slam_route_status["recording"],
             "slam_route_points": slam_route_status["points_count"],
             "slam_pose": slam_route_status["pose"],
-            "available_models": self._available_models(),
         }
 
 
