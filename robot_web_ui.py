@@ -210,6 +210,22 @@ HTML_PAGE = """<!doctype html>
   </div>
 
   <script>
+    (function () {
+      var markReady = function () {
+        var box = document.getElementById('statusBox');
+        var log = document.getElementById('logBox');
+        if (box) box.innerHTML = 'Boot script OK';
+        if (log) log.innerHTML = 'Boot script OK';
+      };
+      if (document.readyState === 'loading' && document.addEventListener) {
+        document.addEventListener('DOMContentLoaded', markReady, false);
+      } else {
+        markReady();
+      }
+    }());
+  </script>
+
+  <script>
     var uiStarted = false;
     var defaultConfig = { lidar_port: '/dev/ttyUSB0', camera_port: '/dev/video0', camera_stream_port: 5000, drive_pca_address: '0x40', servo_pca_address: '0x42', bucket_servo_channel: 0, run_mode: '2', auto_speed: 1500, manual_speed: 1400, yolo_choice: '1', selected_model_name: '', route_source_mode: 'none', route_corridor_m: 3.0, slam_route_record_step_m: 0.35 };
     function byId(id) { return document.getElementById(id); }
