@@ -766,11 +766,9 @@ class RobotManager:
 
     def manual_drive(self, action: str, speed: int) -> Dict[str, Any]:
         with self.lock:
-            if not self.running:
-                self.message = "Robot is not running."
-                return self.status()
-
             speed = max(0, min(4095, int(speed)))
+            config = self.current_config()
+            robot.global_config = dict(config)
 
             if action == "stop":
                 robot.stop_all()
@@ -778,8 +776,13 @@ class RobotManager:
                 self._notify_status("Р­РєСЃС‚СЂРµРЅРЅР°СЏ РѕСЃС‚Р°РЅРѕРІРєР° СЂРѕР±РѕС‚Р°.", dedupe_key="manual_stop")
                 return self.status()
 
-            if self.mode != "manual":
+            if self.running and self.mode != "manual":
                 self.message = "Switch run mode to manual to use drive buttons."
+                return self.status()
+
+            if not robot.init_pca_controllers(config):
+                self.error = "Drive PCA9685 is not available."
+                self.message = "Manual drive is unavailable."
                 return self.status()
 
             with robot.movement_lock:
@@ -824,6 +827,7 @@ class RobotManager:
             else:
                 self.message = f"Unknown drive action: {action}"
 
+            self.error = ""
             return self.status()
 
     def bucket_action(self, action: str) -> Dict[str, Any]:
