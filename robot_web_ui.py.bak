@@ -1319,22 +1319,13 @@ class RobotManager:
         ).strip() or "0x41"
         try:
             normalized["drive_pca_address"] = hex(
-                robot._parse_i2c_address(
-                    normalized.get("drive_pca_address", "0x40"),
-                    robot.MOTOR_PCA_DEFAULT_ADDRESS,
-                )
+                robot._get_drive_pca_address(normalized)
             )
-        except Exception:
-            normalized["drive_pca_address"] = "0x40"
-        try:
             normalized["servo_pca_address"] = hex(
-                robot._parse_i2c_address(
-                    normalized.get("servo_pca_address", "0x41"),
-                    robot.SERVO_PCA_DEFAULT_ADDRESS,
-                )
+                robot._get_servo_pca_address(normalized)
             )
         except Exception:
-            normalized["servo_pca_address"] = "0x41"
+            pass
         try:
             normalized["bucket_servo_channel"] = max(
                 0, min(15, int(normalized.get("bucket_servo_channel", 0)))
@@ -1763,65 +1754,25 @@ class RobotManager:
             return self.status()
 
     def status(self) -> Dict[str, Any]:
-        config_error_details = ""
-        try:
-            config = self.current_config()
-        except Exception as exc:
-            config = self._defaults()
-            config_error_details = f"Status config normalization failed: {exc}"
+        config = self.current_config()
         detector = self.detector
-        try:
-            config_status = (
-                robot.get_config_status()
-                if hasattr(robot, "get_config_status")
-                else {"path": "", "error": ""}
-            )
-        except Exception as exc:
-            config_status = {"path": "", "error": f"Config status failed: {exc}"}
-        try:
-            video_status = (
-                robot.get_video_streamer_status()
-                if hasattr(robot, "get_video_streamer_status")
-                else {"active": False, "source": config.get("camera_port", ""), "error": ""}
-            )
-        except Exception as exc:
-            video_status = {
-                "active": False,
-                "source": config.get("camera_port", ""),
-                "error": f"Video status failed: {exc}",
-            }
-        try:
-            i2c_status = (
-                robot.get_i2c_scan_status()
-                if hasattr(robot, "get_i2c_scan_status")
-                else {"error": ""}
-            )
-        except Exception as exc:
-            i2c_status = {"error": f"I2C status failed: {exc}"}
-        try:
-            route_state = robot.get_route_state(detector)
-        except Exception as exc:
-            route_state = {
-                "source_mode": "none",
-                "route_enabled": False,
-                "within_corridor": True,
-                "distance_m": None,
-                "route_fresh": False,
-            }
-            config_error_details = (
-                f"{config_error_details} | Route status failed: {exc}".strip(" |")
-                if config_error_details
-                else f"Route status failed: {exc}"
-            )
-        try:
-            slam_route_status = robot.get_slam_route_status()
-        except Exception as exc:
-            slam_route_status = {"recording": False, "points_count": 0, "pose": None}
-            config_error_details = (
-                f"{config_error_details} | SLAM route status failed: {exc}".strip(" |")
-                if config_error_details
-                else f"SLAM route status failed: {exc}"
-            )
+        config_status = (
+            robot.get_config_status()
+            if hasattr(robot, "get_config_status")
+            else {"path": "", "error": ""}
+        )
+        video_status = (
+            robot.get_video_streamer_status()
+            if hasattr(robot, "get_video_streamer_status")
+            else {"active": False, "source": config.get("camera_port", ""), "error": ""}
+        )
+        i2c_status = (
+            robot.get_i2c_scan_status()
+            if hasattr(robot, "get_i2c_scan_status")
+            else {"error": ""}
+        )
+        route_state = robot.get_route_state(detector)
+        slam_route_status = robot.get_slam_route_status()
         trash_summary = "disabled"
         detector_debug = ""
         if detector:
@@ -1864,17 +1815,6 @@ class RobotManager:
             route_debug_parts.append("recording=yes")
         route_debug = ", ".join(route_debug_parts)
 
-        try:
-            available_i2c_addresses = (
-                robot.get_available_i2c_addresses()
-                if hasattr(robot, "get_available_i2c_addresses")
-                else []
-            )
-        except Exception as exc:
-            available_i2c_addresses = []
-            if not i2c_status.get("error"):
-                i2c_status["error"] = f"I2C detection failed: {exc}"
-
         return {
             "running": self.running,
             "mode": self.mode,
@@ -1909,16 +1849,13 @@ class RobotManager:
             "available_models": self._available_models(),
             "available_serial_ports": robot.find_serial_candidates(),
             "available_camera_ports": robot.find_camera_candidates(),
-            "available_i2c_addresses": available_i2c_addresses,
-            "config_path": config_status.get("path", ""),
-            "config_error": " | ".join(
-                part
-                for part in [
-                    config_status.get("error", ""),
-                    config_error_details,
-                ]
-                if part
+            "available_i2c_addresses": (
+                robot.get_available_i2c_addresses()
+                if hasattr(robot, "get_available_i2c_addresses")
+                else []
             ),
+            "config_path": config_status.get("path", ""),
+            "config_error": config_status.get("error", ""),
             "video_source": video_status.get("source", ""),
             "video_error": video_status.get("error", ""),
             "i2c_error": i2c_status.get("error", ""),

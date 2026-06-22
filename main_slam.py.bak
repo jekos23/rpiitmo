@@ -283,7 +283,6 @@ pca = None
 servo_pca = None
 pca_runtime_signature = None
 i2c_scan_runtime_error = ""
-I2C_SCAN_LOCK_TIMEOUT_SEC = 0.35
 
 
 def _parse_i2c_address(value, default):
@@ -309,15 +308,12 @@ def get_i2c_scan_status():
     }
 
 
-def scan_i2c_addresses(lock_timeout_sec=I2C_SCAN_LOCK_TIMEOUT_SEC):
+def scan_i2c_addresses():
     global i2c
     try:
         if i2c is None:
             i2c = busio.I2C(board.SCL, board.SDA)
-        deadline = time.time() + max(0.05, float(lock_timeout_sec))
         while not i2c.try_lock():
-            if time.time() >= deadline:
-                raise TimeoutError("I2C bus lock timeout")
             time.sleep(0.05)
         try:
             addresses = sorted(int(addr) for addr in i2c.scan())
