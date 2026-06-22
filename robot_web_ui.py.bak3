@@ -12,14 +12,6 @@ import main_slam as robot
 app = Flask(__name__)
 
 
-@app.after_request
-def add_no_cache_headers(response):
-    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-    response.headers["Pragma"] = "no-cache"
-    response.headers["Expires"] = "0"
-    return response
-
-
 DEFAULT_CONFIG = {
     "lidar_port": "/dev/ttyUSB0",
     "camera_port": "/dev/video0",
@@ -846,8 +838,7 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
         systemLogTitle: 'system_log',
       };
 
-      Object.keys(textMap).forEach((id) => {
-        const key = textMap[id];
+      Object.entries(textMap).forEach(([id, key]) => {
         const element = document.getElementById(id);
         if (element) {
           element.textContent = t(key);
@@ -934,11 +925,10 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
       }
       const safeModels = Array.isArray(models) ? models : [];
       const preferredValue = force ? (selectedValue || '') : (select.value || selectedValue || '');
-      const optionMarkup = [`<option value="">${t('auto_model')}</option>`];
-      safeModels.forEach((name) => {
-        const safeName = String(name).split('"').join('&quot;');
-        optionMarkup.push(`<option value="${safeName}">${name}</option>`);
-      });
+      const optionMarkup = [
+        `<option value="">${t('auto_model')}</option>`,
+        ...safeModels.map((name) => `<option value="${name.replaceAll('"', '&quot;')}">${name}</option>`),
+      ];
       select.innerHTML = optionMarkup.join('');
       if (!safeModels.length) {
         select.innerHTML = `<option value="">${t('no_models')}</option>`;
@@ -967,22 +957,21 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
       };
     }
 
-    function applyConfig(config, options) {
-      const force = Boolean(options && options.force);
+    function applyConfig(config, { force = false } = {}) {
       if (!config) return;
       setFieldValue('lidar_port', config.lidar_port || '', force);
       setFieldValue('drive_pca_address', config.drive_pca_address || '0x40', force);
-      setFieldValue('servo_pca_address', config.servo_pca_address || '0x42', force);
-      setFieldValue('bucket_servo_channel', config.bucket_servo_channel != null ? config.bucket_servo_channel : 0, force);
+      setFieldValue('servo_pca_address', config.servo_pca_address || '0x41', force);
+      setFieldValue('bucket_servo_channel', config.bucket_servo_channel ?? 0, force);
       setFieldValue('camera_port', config.camera_port || '', force);
-      setFieldValue('camera_stream_port', config.camera_stream_port != null ? config.camera_stream_port : 5000, force);
+      setFieldValue('camera_stream_port', config.camera_stream_port ?? 5000, force);
       setFieldValue('run_mode', String(config.run_mode || '2'), force);
-      setFieldValue('auto_speed', config.auto_speed != null ? config.auto_speed : 1500, force);
-      setFieldValue('manual_speed', config.manual_speed != null ? config.manual_speed : 1400, force);
+      setFieldValue('auto_speed', config.auto_speed ?? 1500, force);
+      setFieldValue('manual_speed', config.manual_speed ?? 1400, force);
       setFieldValue('yolo_choice', String(config.yolo_choice || '1'), force);
       setFieldValue('route_source_mode', String(config.route_source_mode || 'none'), force);
-      setFieldValue('route_corridor_m', config.route_corridor_m != null ? config.route_corridor_m : 3.0, force);
-      setFieldValue('slam_route_record_step_m', config.slam_route_record_step_m != null ? config.slam_route_record_step_m : 0.35, force);
+      setFieldValue('route_corridor_m', config.route_corridor_m ?? 3.0, force);
+      setFieldValue('slam_route_record_step_m', config.slam_route_record_step_m ?? 0.35, force);
       updateModelOptions(config.available_models || [], config.selected_model_name || '', force);
       document.getElementById('modeNote').textContent = document.getElementById('run_mode').value === '1'
         ? t('mode_note_manual')
@@ -1057,16 +1046,15 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
       }
     }
 
-    function updateStatusUi(status, options) {
-      const forceConfig = Boolean(options && options.forceConfig);
+    function updateStatusUi(status, { forceConfig = false } = {}) {
       lastStatus = status;
-      const configForUi = {};
-      const statusConfig = status && status.config ? status.config : {};
-      Object.keys(statusConfig).forEach((key) => {
-        configForUi[key] = statusConfig[key];
-      });
-      configForUi.available_models = status.available_models || [];
-      applyConfig(configForUi, { force: forceConfig });
+      applyConfig(
+        {
+          ...(status.config || {}),
+          available_models: status.available_models || [],
+        },
+        { force: forceConfig },
+      );
       const routeSourceLabels = {
         none: t('disabled'),
         slam: t('route_slam'),
@@ -1093,11 +1081,11 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
       }
       if (status.selected_model_name) {
         modelSummary = status.selected_model_name;
-      } else if (status.config && status.config.yolo_choice === '2') {
+      } else if (status.config?.yolo_choice === '2') {
         modelSummary = (status.available_models && status.available_models.length)
           ? t('auto_model')
           : t('no_models');
-      } else if (status.config && status.config.yolo_choice === '1') {
+      } else if (status.config?.yolo_choice === '1') {
         modelSummary = t('phone_none');
       }
 
@@ -1148,79 +1136,72 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
       updateDriveControls(status);
     }
 
-    function api(path, payload) {
-      return fetch(path, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload || {}),
-      })
-        .then((response) => {
-          if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
-          }
-          return response.json();
-        })
-        .then((data) => {
-          clearTouchedFields();
-          updateStatusUi(data, { forceConfig: true });
-          return data;
-        })
-        .catch((error) => {
-          setFetchError(error);
-          throw error;
+    async function api(path, payload) {
+      try {
+        const response = await fetch(path, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload || {}),
         });
-    }
-
-    function saveConfig() {
-      return api('/api/config', formPayload());
-    }
-
-    function startRobot() {
-      return api('/api/start', formPayload());
-    }
-
-    function stopRobot() {
-      return api('/api/stop', {});
-    }
-
-    function prepareBucket() {
-      return api('/api/bucket', { action: 'prepare' });
-    }
-
-    function drive(action) {
-      const payload = { action, speed: parseInt(document.getElementById('manual_speed').value || '1400', 10) };
-      return api('/api/drive', payload);
-    }
-
-    function bucket(action) {
-      return api('/api/bucket', { action });
-    }
-
-    function slamRoute(action) {
-      return api('/api/slam_route', { action });
-    }
-
-    function refreshStatus() {
-      return fetch('/api/status')
-        .then((response) => {
-          if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
-          }
-          return response.json();
-        })
-        .then((data) => {
-          updateStatusUi(data);
-          return data;
-        })
-        .catch((error) => {
-          setFetchError(error);
-        });
-    }
-
-    function engageDrive(action, keyCode) {
-      if (typeof keyCode === 'undefined') {
-        keyCode = null;
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        const data = await response.json();
+        clearTouchedFields();
+        updateStatusUi(data, { forceConfig: true });
+        return data;
+      } catch (error) {
+        setFetchError(error);
+        throw error;
       }
+    }
+
+    async function saveConfig() {
+      await api('/api/config', formPayload());
+    }
+
+    async function startRobot() {
+      await api('/api/start', formPayload());
+    }
+
+    async function stopRobot() {
+      await api('/api/stop', {});
+    }
+
+    async function prepareBucket() {
+      await api('/api/bucket', { action: 'prepare' });
+    }
+
+    async function drive(action) {
+      const payload = { action, speed: parseInt(document.getElementById('manual_speed').value || '1400', 10) };
+      await api('/api/drive', payload);
+    }
+
+    async function bucket(action) {
+      await api('/api/bucket', { action });
+    }
+
+    async function slamRoute(action) {
+      await api('/api/slam_route', { action });
+    }
+
+    async function refreshStatus() {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 1800);
+        const response = await fetch('/api/status', { signal: controller.signal });
+        clearTimeout(timeoutId);
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        const data = await response.json();
+        updateStatusUi(data);
+      } catch (error) {
+        setFetchError(error);
+      }
+    }
+
+    function engageDrive(action, keyCode = null) {
       if (!manualDriveEnabled && action !== 'stop') {
         return;
       }
@@ -1232,10 +1213,7 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
       drive(action);
     }
 
-    function releaseDrive(keyCode) {
-      if (typeof keyCode === 'undefined') {
-        keyCode = null;
-      }
+    function releaseDrive(keyCode = null) {
       if (keyCode && activeDriveKeyCode && keyCode !== activeDriveKeyCode) {
         return;
       }
@@ -1260,9 +1238,7 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
         }
         button.addEventListener('pointerdown', (event) => {
           event.preventDefault();
-          if (button.setPointerCapture) {
-            button.setPointerCapture(event.pointerId);
-          }
+          button.setPointerCapture?.(event.pointerId);
           engageDrive(action);
         });
         ['pointerup', 'pointercancel', 'lostpointercapture'].forEach((name) => {
@@ -1275,8 +1251,7 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
         if (!action || event.repeat) {
           return;
         }
-        const activeElement = document.activeElement;
-        const tag = activeElement ? activeElement.tagName : '';
+        const tag = document.activeElement?.tagName;
         if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') {
           return;
         }
