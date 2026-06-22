@@ -337,22 +337,18 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
         <h2 id="launchSettingsTitle">Launch Settings</h2>
         <label for="lidar_port" id="labelLidarPort">LiDAR port</label>
         <input id="lidar_port" />
-        <div id="lidarHint" class="field-hint">Detected serial ports will appear here.</div>
 
         <label for="drive_pca_address" id="labelDrivePcaAddress">Drive PCA I2C address</label>
         <input id="drive_pca_address" />
-        <div id="drivePcaHint" class="field-hint">Detected I2C addresses will appear here.</div>
 
         <label for="servo_pca_address" id="labelServoPcaAddress">Servo PCA I2C address</label>
         <input id="servo_pca_address" />
-        <div id="servoPcaHint" class="field-hint">Do not use 0x70 for a PCA9685 board address.</div>
 
         <label for="bucket_servo_channel" id="labelBucketServoChannel">Bucket servo channel</label>
         <input id="bucket_servo_channel" type="number" min="0" max="15" />
 
         <label for="camera_port" id="labelCameraPort">Camera port</label>
         <input id="camera_port" />
-        <div id="cameraHint" class="field-hint">Detected video devices will appear here.</div>
 
         <label for="camera_stream_port" id="labelCameraStreamPort">Camera stream port</label>
         <input id="camera_stream_port" type="number" />
@@ -501,10 +497,6 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
       ru: {
         drive_pca_address: 'I2C адрес PCA моторов',
         servo_pca_address: 'I2C адрес PCA сервы',
-        lidar_hint: 'Найденные serial-порты появятся здесь.',
-        camera_hint: 'Найденные video-устройства появятся здесь.',
-        drive_pca_hint: 'Найденные I2C адреса появятся здесь.',
-        servo_pca_hint: 'Не используй 0x70 как адрес отдельной платы PCA9685.',
         bucket_servo_channel: 'Канал сервопривода ковша',
         bucket_servo_controller: 'Контроллер сервы ковша',
         local_models_hint: 'Список моделей подгружается с Raspberry Pi автоматически.',
@@ -603,10 +595,6 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
       },
       en: {
         drive_pca_address: 'Drive PCA I2C address',
-        lidar_hint: 'Detected serial ports will appear here.',
-        camera_hint: 'Detected video devices will appear here.',
-        drive_pca_hint: 'Detected I2C addresses will appear here.',
-        servo_pca_hint: 'Do not use 0x70 as a standalone PCA9685 board address.',
         hero_title: 'Robot Control Station',
         hero_subtitle: 'Start the robot, watch the camera stream, and switch between autopilot and manual control from any device in your LAN.',
         launch_settings: 'Launch Settings',
@@ -834,10 +822,6 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
       document.getElementById('modeNote').textContent = document.getElementById('run_mode').value === '1'
         ? t('mode_note_manual')
         : t('mode_note_autopilot');
-      document.getElementById('lidarHint').textContent = t('lidar_hint');
-      document.getElementById('cameraHint').textContent = t('camera_hint');
-      document.getElementById('drivePcaHint').textContent = t('drive_pca_hint');
-      document.getElementById('servoPcaHint').textContent = t('servo_pca_hint');
       document.getElementById('manualHint').textContent = manualDriveEnabled
         ? t('manual_hold_hint')
         : t('manual_locked');
@@ -998,25 +982,6 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
       return `${x}, ${y}, ${theta}`;
     }
 
-    function updateDeviceHints(status) {
-      const serialPorts = Array.isArray(status.available_serial_ports) ? status.available_serial_ports : [];
-      const cameraPorts = Array.isArray(status.available_camera_ports) ? status.available_camera_ports : [];
-      const i2cAddresses = Array.isArray(status.available_i2c_addresses) ? status.available_i2c_addresses : [];
-
-      document.getElementById('lidarHint').textContent = serialPorts.length
-        ? `Detected serial: ${serialPorts.join(', ')}`
-        : t('lidar_hint');
-      document.getElementById('cameraHint').textContent = cameraPorts.length
-        ? `Detected video: ${cameraPorts.join(', ')}`
-        : t('camera_hint');
-      document.getElementById('drivePcaHint').textContent = i2cAddresses.length
-        ? `Detected I2C: ${i2cAddresses.join(', ')}`
-        : t('drive_pca_hint');
-      document.getElementById('servoPcaHint').textContent = i2cAddresses.length
-        ? `Detected I2C: ${i2cAddresses.join(', ')}. ${t('servo_pca_hint')}`
-        : t('servo_pca_hint');
-    }
-
     function updateDriveControls(status) {
       manualDriveEnabled = Boolean(status.running && status.mode === 'manual');
       document.querySelectorAll('[data-drive]').forEach((button) => {
@@ -1100,7 +1065,6 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
         status.stream_url ? `${t('stream_prefix')}: ${status.stream_url}` : '',
         status.video_source ? `Camera: ${status.video_source}` : '',
         status.video_error ? `${t('error_prefix')}: ${status.video_error}` : '',
-        status.i2c_error ? `${t('error_prefix')}: ${status.i2c_error}` : '',
         status.config_error ? `${t('error_prefix')}: ${status.config_error}` : '',
         status.detector_debug ? `${t('detector_prefix')}: ${status.detector_debug}` : '',
         status.route_debug ? `${t('route_prefix')}: ${status.route_debug}` : '',
@@ -1118,7 +1082,6 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
         video.dataset.currentSrc = '';
       }
       overlay.style.display = status.stream_url ? 'none' : 'flex';
-      updateDeviceHints(status);
       updateDriveControls(status);
     }
 
@@ -1317,15 +1280,6 @@ class RobotManager:
         normalized["servo_pca_address"] = str(
             normalized.get("servo_pca_address", "0x41")
         ).strip() or "0x41"
-        try:
-            normalized["drive_pca_address"] = hex(
-                robot._get_drive_pca_address(normalized)
-            )
-            normalized["servo_pca_address"] = hex(
-                robot._get_servo_pca_address(normalized)
-            )
-        except Exception:
-            pass
         try:
             normalized["bucket_servo_channel"] = max(
                 0, min(15, int(normalized.get("bucket_servo_channel", 0)))
@@ -1766,11 +1720,6 @@ class RobotManager:
             if hasattr(robot, "get_video_streamer_status")
             else {"active": False, "source": config.get("camera_port", ""), "error": ""}
         )
-        i2c_status = (
-            robot.get_i2c_scan_status()
-            if hasattr(robot, "get_i2c_scan_status")
-            else {"error": ""}
-        )
         route_state = robot.get_route_state(detector)
         slam_route_status = robot.get_slam_route_status()
         trash_summary = "disabled"
@@ -1847,18 +1796,10 @@ class RobotManager:
             "slam_route_points": slam_route_status["points_count"],
             "slam_pose": slam_route_status["pose"],
             "available_models": self._available_models(),
-            "available_serial_ports": robot.find_serial_candidates(),
-            "available_camera_ports": robot.find_camera_candidates(),
-            "available_i2c_addresses": (
-                robot.get_available_i2c_addresses()
-                if hasattr(robot, "get_available_i2c_addresses")
-                else []
-            ),
             "config_path": config_status.get("path", ""),
             "config_error": config_status.get("error", ""),
             "video_source": video_status.get("source", ""),
             "video_error": video_status.get("error", ""),
-            "i2c_error": i2c_status.get("error", ""),
         }
 
 

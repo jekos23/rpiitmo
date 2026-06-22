@@ -282,7 +282,6 @@ i2c = None
 pca = None
 servo_pca = None
 pca_runtime_signature = None
-i2c_scan_runtime_error = ""
 
 
 def _parse_i2c_address(value, default):
@@ -297,88 +296,26 @@ def _parse_i2c_address(value, default):
     return int(value)
 
 
-def _set_i2c_scan_runtime_error(message):
-    global i2c_scan_runtime_error
-    i2c_scan_runtime_error = str(message or "").strip()
-
-
-def get_i2c_scan_status():
-    return {
-        "error": i2c_scan_runtime_error,
-    }
-
-
-def scan_i2c_addresses():
-    global i2c
-    try:
-        if i2c is None:
-            i2c = busio.I2C(board.SCL, board.SDA)
-        while not i2c.try_lock():
-            time.sleep(0.05)
-        try:
-            addresses = sorted(int(addr) for addr in i2c.scan())
-        finally:
-            i2c.unlock()
-        _set_i2c_scan_runtime_error("")
-        return addresses
-    except Exception as e:
-        _set_i2c_scan_runtime_error(f"I2C scan failed: {e}")
-        return []
-
-
-def get_available_i2c_addresses():
-    return [hex(addr) for addr in scan_i2c_addresses()]
-
-
-def _select_pca_addresses(config=None):
+def _get_drive_pca_address(config=None):
     config = config or global_config
-    available = scan_i2c_addresses()
-    pca_candidates = [addr for addr in available if addr != 0x70]
-
-    drive_address = None
-    servo_address = None
     try:
-        drive_address = _parse_i2c_address(
+        return _parse_i2c_address(
             config.get("drive_pca_address", MOTOR_PCA_DEFAULT_ADDRESS),
             MOTOR_PCA_DEFAULT_ADDRESS,
         )
     except (TypeError, ValueError):
-        drive_address = None
+        return MOTOR_PCA_DEFAULT_ADDRESS
 
+
+def _get_servo_pca_address(config=None):
+    config = config or global_config
     try:
-        servo_address = _parse_i2c_address(
+        return _parse_i2c_address(
             config.get("servo_pca_address", SERVO_PCA_DEFAULT_ADDRESS),
             SERVO_PCA_DEFAULT_ADDRESS,
         )
     except (TypeError, ValueError):
-        servo_address = None
-
-    if drive_address not in pca_candidates and pca_candidates:
-        drive_address = pca_candidates[0]
-
-    if servo_address not in pca_candidates or servo_address == drive_address:
-        servo_address = None
-        for candidate in pca_candidates:
-            if candidate != drive_address:
-                servo_address = candidate
-                break
-
-    if drive_address is None:
-        drive_address = MOTOR_PCA_DEFAULT_ADDRESS
-    if servo_address is None:
-        servo_address = SERVO_PCA_DEFAULT_ADDRESS
-
-    return drive_address, servo_address
-
-
-def _get_drive_pca_address(config=None):
-    drive_address, _ = _select_pca_addresses(config)
-    return drive_address
-
-
-def _get_servo_pca_address(config=None):
-    _, servo_address = _select_pca_addresses(config)
-    return servo_address
+        return SERVO_PCA_DEFAULT_ADDRESS
 
 
 def _get_bucket_servo_channel(config=None):
