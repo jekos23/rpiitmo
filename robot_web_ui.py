@@ -71,7 +71,7 @@ def _repair_mojibake_block(text: str) -> str:
     return "".join(_repair_mojibake_text(line) for line in text.splitlines(keepends=True))
 
 
-HTML_PAGE = """<!doctype html>
+HTML_PAGE = _repair_mojibake_block("""<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -1234,7 +1234,7 @@ HTML_PAGE = """<!doctype html>
   </script>
 </body>
 </html>
-"""
+""")
 
 
 class RobotManager:
