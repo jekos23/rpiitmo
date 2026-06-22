@@ -1,4 +1,4 @@
-﻿import argparse
+import argparse
 import os
 import threading
 import time
@@ -347,7 +347,7 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
       </div>
       <div class="hero-side">
         <select id="languageSelect" class="lang-switch" onchange="setLanguage(this.value)">
-          <option value="ru">Р СѓСЃСЃРєРёР№</option>
+          <option value="ru">Русский</option>
           <option value="en">English</option>
         </select>
         <div id="heroStatus" class="status-pill">Loading...</div>
@@ -489,8 +489,8 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
               <button class="dark" onclick="bucket('wall_up')" id="buttonWallUp">Wall up</button>
             </div>
             <div class="button-row">
-              <button class="dark" onclick="bucket('scoop_down')">Scoop 90В°</button>
-              <button class="dark" onclick="bucket('scoop_up')">Scoop 0В°</button>
+              <button class="dark" onclick="bucket('scoop_down')">Scoop 90°</button>
+              <button class="dark" onclick="bucket('scoop_up')">Scoop 0°</button>
             </div>
             <div class="button-row">
               <button class="dark" onclick="bucket('bucket_test')" id="buttonTimedTest">Timed test</button>
@@ -518,12 +518,218 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
   </div>
 
   <script>
-    var lastStatus = null;
-    var manualDriveEnabled = false;
-    var activeDriveAction = null;
-    var activeDriveKey = null;
-    var touchedFields = {};
-    var configFieldIds = [
+    let lastStatus = null;
+    const translations = {
+      ru: {
+        drive_pca_address: 'I2C адрес PCA моторов',
+        servo_pca_address: 'I2C адрес PCA сервы',
+        lidar_hint: 'Найденные serial-порты появятся здесь.',
+        camera_hint: 'Найденные video-устройства появятся здесь.',
+        drive_pca_hint: 'Найденные I2C адреса появятся здесь.',
+        servo_pca_hint: 'Не используй 0x70 как адрес отдельной платы PCA9685.',
+        bucket_servo_channel: 'Канал сервопривода ковша',
+        bucket_servo_controller: 'Контроллер сервы ковша',
+        local_models_hint: 'Список моделей подгружается с Raspberry Pi автоматически.',
+        auto_model: 'Автовыбор первой доступной модели',
+        no_models: 'Локальные модели не найдены',
+        mode_note_manual: 'В ручном режиме доступны веб-кнопки управления и клавиши WASD/стрелки.',
+        mode_note_autopilot: 'Автопилот запускает LiDAR, камеру и детектор сразу после старта.',
+        manual_hold_hint: 'Удерживай кнопку направления или используй WASD / стрелки. Отпусти, чтобы остановить робота.',
+        manual_locked: 'Ручное управление станет доступно после запуска робота в manual mode.',
+        manual_ready: 'Ручное управление активно.',
+        lidar_status: 'LiDAR',
+        uptime: 'Время работы',
+        speed: 'Скорость',
+        pose: 'Поза SLAM',
+        video_waiting: 'Ожидание живого видеопотока...',
+        hero_title: 'Станция управления роботом',
+        hero_subtitle: 'Запускай робота, смотри видеопоток и переключайся между автопилотом и ручным управлением из локальной сети.',
+        launch_settings: 'Параметры запуска',
+        lidar_port: 'Порт LiDAR',
+        arduino_port: 'Порт Arduino',
+        camera_port: 'Порт камеры',
+        camera_stream_port: 'Порт видеопотока',
+        run_mode: 'Режим работы',
+        autopilot: 'Автопилот',
+        manual: 'Ручной',
+        autopilot_speed: 'Скорость автопилота',
+        manual_speed: 'Скорость ручного режима',
+        yolo_source: 'Источник YOLO',
+        yolo_phone: 'Телефон / ПК по Wi-Fi',
+        yolo_local: 'Локальная модель на Raspberry Pi',
+        disabled: 'Отключено',
+        route_source: 'Источник маршрута',
+        route_slam: 'Маршрут LiDAR SLAM',
+        route_gps: 'Телефонный GPS / indoor positioning',
+        route_corridor: 'Коридор маршрута (метры)',
+        slam_step: 'Шаг точек SLAM (метры)',
+        model_folder: 'Папка локальной модели',
+        optional: 'необязательно',
+        save_config: 'Сохранить конфиг',
+        start_robot: 'Запустить робота',
+        prepare_bucket: 'Подготовить ковш',
+        stop_robot: 'Остановить робота',
+        robot_state: 'Состояние робота',
+        mode: 'Режим',
+        camera_stream: 'Видеопоток',
+        trash_detector: 'Детектор мусора',
+        bucket_arduino: 'Arduino ковша',
+        active_model: 'Активная модель',
+        route_status: 'Статус маршрута',
+        live_video: 'Живое видео',
+        manual_drive: 'Ручное движение',
+        forward: 'Вперёд',
+        left: 'Влево',
+        stop: 'СТОП',
+        right: 'Вправо',
+        backward: 'Назад',
+        bucket_control: 'Управление ковшом',
+        wall_down: 'Стенка вниз',
+        wall_up: 'Стенка вверх',
+        scoop_down: 'Совок 90°',
+        scoop_up: 'Совок 0°',
+        timed_test: 'Тест по времени',
+        collect_cycle: 'Цикл сбора',
+        slam_route: 'SLAM-маршрут',
+        record_route: 'Записать маршрут',
+        stop_record: 'Остановить запись',
+        clear_route: 'Очистить маршрут',
+        refresh: 'Обновить',
+        system_log: 'Системный журнал',
+        loading: 'Загрузка...',
+        no_messages: 'Пока нет сообщений.',
+        running: 'Работает',
+        stopped: 'Остановлен',
+        online: 'онлайн',
+        offline: 'офлайн',
+        connected: 'подключено',
+        disconnected: 'отключено',
+        mode_idle: 'Остановлен',
+        mode_manual: 'Ручное управление',
+        mode_autopilot: 'Автопилот',
+        phone_none: 'телефон / нет',
+        points_short: 'точек',
+        meters_short: 'м',
+        recording: 'запись',
+        phone_route_active: 'маршрут с телефона активен',
+        waiting_phone_route: 'ожидание маршрута с телефона',
+        inside_corridor: 'внутри коридора',
+        outside_corridor: 'вне коридора',
+        error_prefix: 'Ошибка',
+        stream_prefix: 'Поток',
+        detector_prefix: 'Детектор',
+        route_prefix: 'Маршрут',
+        trash_waiting: 'активен, ожидание',
+        trash_disabled: 'отключен',
+        trash_at: 'мусор под углом',
+      },
+      en: {
+        drive_pca_address: 'Drive PCA I2C address',
+        lidar_hint: 'Detected serial ports will appear here.',
+        camera_hint: 'Detected video devices will appear here.',
+        drive_pca_hint: 'Detected I2C addresses will appear here.',
+        servo_pca_hint: 'Do not use 0x70 as a standalone PCA9685 board address.',
+        hero_title: 'Robot Control Station',
+        hero_subtitle: 'Start the robot, watch the camera stream, and switch between autopilot and manual control from any device in your LAN.',
+        launch_settings: 'Launch Settings',
+        lidar_port: 'LiDAR port',
+        arduino_port: 'Arduino port',
+        servo_pca_address: 'Servo PCA I2C address',
+        bucket_servo_channel: 'Bucket servo channel',
+        camera_port: 'Camera port',
+        camera_stream_port: 'Camera stream port',
+        run_mode: 'Run mode',
+        autopilot: 'Autopilot',
+        manual: 'Manual',
+        autopilot_speed: 'Autopilot speed',
+        manual_speed: 'Manual speed',
+        yolo_source: 'YOLO source',
+        yolo_phone: 'Phone / PC detector over Wi-Fi',
+        yolo_local: 'Local model on Raspberry Pi',
+        disabled: 'Disabled',
+        route_source: 'Route source',
+        route_slam: 'LiDAR SLAM route',
+        route_gps: 'Phone GPS / indoor positioning',
+        route_corridor: 'Route corridor (meters)',
+        slam_step: 'SLAM point step (meters)',
+        model_folder: 'Local model folder name',
+        optional: 'optional',
+        save_config: 'Save config',
+        start_robot: 'Start robot',
+        prepare_bucket: 'Prepare bucket',
+        stop_robot: 'Stop robot',
+        robot_state: 'Robot state',
+        mode: 'Mode',
+        camera_stream: 'Camera stream',
+        trash_detector: 'Trash detector',
+        bucket_arduino: 'Bucket Arduino',
+        bucket_servo_controller: 'Bucket servo controller',
+        local_models_hint: 'The list is loaded from the Raspberry Pi automatically.',
+        auto_model: 'Auto-pick the first available model',
+        no_models: 'No local models found',
+        mode_note_manual: 'Manual mode keeps web drive buttons and WASD / arrow keys active.',
+        mode_note_autopilot: 'Autopilot starts LiDAR, camera, and detector immediately.',
+        manual_hold_hint: 'Hold a direction button or use WASD / arrow keys. Release to stop the robot.',
+        manual_locked: 'Manual drive becomes available after starting the robot in manual mode.',
+        manual_ready: 'Manual drive is active.',
+        lidar_status: 'LiDAR',
+        uptime: 'Uptime',
+        speed: 'Speed',
+        pose: 'SLAM pose',
+        video_waiting: 'Waiting for live stream...',
+        active_model: 'Active model',
+        route_status: 'Route status',
+        live_video: 'Live Video',
+        manual_drive: 'Manual Drive',
+        forward: 'Forward',
+        left: 'Left',
+        stop: 'STOP',
+        right: 'Right',
+        backward: 'Backward',
+        bucket_control: 'Bucket Control',
+        wall_down: 'Wall down',
+        wall_up: 'Wall up',
+        scoop_down: 'Scoop 90°',
+        scoop_up: 'Scoop 0°',
+        timed_test: 'Timed test',
+        collect_cycle: 'Collect cycle',
+        slam_route: 'SLAM Route',
+        record_route: 'Record route',
+        stop_record: 'Stop record',
+        clear_route: 'Clear route',
+        refresh: 'Refresh',
+        system_log: 'System Log',
+        loading: 'Loading...',
+        no_messages: 'No messages yet.',
+        running: 'Running',
+        stopped: 'Stopped',
+        online: 'online',
+        offline: 'offline',
+        connected: 'connected',
+        disconnected: 'disconnected',
+        mode_idle: 'Stopped',
+        mode_manual: 'Manual web control',
+        mode_autopilot: 'Autopilot',
+        phone_none: 'phone / none',
+        points_short: 'pts',
+        meters_short: 'm',
+        recording: 'recording',
+        phone_route_active: 'phone route active',
+        waiting_phone_route: 'waiting for phone route',
+        inside_corridor: 'inside corridor',
+        outside_corridor: 'outside corridor',
+        error_prefix: 'Error',
+        stream_prefix: 'Stream',
+        detector_prefix: 'Detector',
+        route_prefix: 'Route',
+        trash_waiting: 'active, waiting',
+        trash_disabled: 'disabled',
+        trash_at: 'trash at',
+      },
+    };
+    let currentLanguage = localStorage.getItem('robot_ui_language') || 'ru';
+    const touchedFields = new Set();
+    const configFieldIds = [
       'lidar_port',
       'drive_pca_address',
       'servo_pca_address',
@@ -537,9 +743,571 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
       'route_source_mode',
       'route_corridor_m',
       'slam_route_record_step_m',
-      'selected_model_name'
+      'selected_model_name',
     ];
-    var defaultConfig = {
+    const keyDriveMap = {
+      ArrowUp: 'forward',
+      KeyW: 'forward',
+      ArrowDown: 'backward',
+      KeyS: 'backward',
+      ArrowLeft: 'left',
+      KeyA: 'left',
+      ArrowRight: 'right',
+      KeyD: 'right',
+      Space: 'stop',
+    };
+    let activeDriveAction = null;
+    let activeDriveKeyCode = null;
+    let manualDriveEnabled = false;
+
+    function t(key) {
+      return (translations[currentLanguage] && translations[currentLanguage][key])
+        || translations.en[key]
+        || key;
+    }
+
+    function translateMode(mode) {
+      return {
+        idle: t('mode_idle'),
+        manual: t('mode_manual'),
+        autopilot: t('mode_autopilot'),
+      }[mode] || mode || '--';
+    }
+
+    function translateTrashSummary(summary) {
+      if (!summary || summary === 'disabled') return t('trash_disabled');
+      if (summary === 'active, waiting') return t('trash_waiting');
+      if (summary.startsWith('trash at ')) {
+        return summary.replace('trash at ', `${t('trash_at')} `);
+      }
+      return summary;
+    }
+
+    function updateStaticTexts() {
+      const textMap = {
+        heroTitle: 'hero_title',
+        heroSubtitle: 'hero_subtitle',
+        launchSettingsTitle: 'launch_settings',
+        labelLidarPort: 'lidar_port',
+        labelDrivePcaAddress: 'drive_pca_address',
+        labelServoPcaAddress: 'servo_pca_address',
+        labelBucketServoChannel: 'bucket_servo_channel',
+        labelCameraPort: 'camera_port',
+        labelCameraStreamPort: 'camera_stream_port',
+        labelRunMode: 'run_mode',
+        optionAutopilot: 'autopilot',
+        optionManual: 'manual',
+        labelAutoSpeed: 'autopilot_speed',
+        labelManualSpeed: 'manual_speed',
+        labelYoloChoice: 'yolo_source',
+        optionYoloPhone: 'yolo_phone',
+        optionYoloLocal: 'yolo_local',
+        optionDisabledA: 'disabled',
+        labelRouteSource: 'route_source',
+        optionDisabledB: 'disabled',
+        optionRouteSlam: 'route_slam',
+        optionRouteGps: 'route_gps',
+        labelRouteCorridor: 'route_corridor',
+        labelSlamStep: 'slam_step',
+        labelModelName: 'model_folder',
+        buttonSaveConfig: 'save_config',
+        buttonStartRobot: 'start_robot',
+        buttonPrepareBucket: 'prepare_bucket',
+        buttonStopRobot: 'stop_robot',
+        labelStatRunning: 'robot_state',
+        labelStatMode: 'mode',
+        labelStatVideo: 'camera_stream',
+        labelStatTrash: 'trash_detector',
+        labelStatServoController: 'bucket_servo_controller',
+        labelStatModel: 'active_model',
+        labelStatRouteSource: 'route_source',
+        labelStatRoute: 'route_status',
+        labelStatLidar: 'lidar_status',
+        labelStatUptime: 'uptime',
+        labelStatSpeed: 'speed',
+        labelStatPose: 'pose',
+        liveVideoTitle: 'live_video',
+        manualDriveTitle: 'manual_drive',
+        buttonForward: 'forward',
+        buttonLeft: 'left',
+        buttonStop: 'stop',
+        buttonRight: 'right',
+        buttonBackward: 'backward',
+        bucketControlTitle: 'bucket_control',
+        buttonWallDown: 'wall_down',
+        buttonWallUp: 'wall_up',
+        buttonTimedTest: 'timed_test',
+        buttonCollect: 'collect_cycle',
+        slamRouteTitle: 'slam_route',
+        buttonRecordRoute: 'record_route',
+        buttonStopRecord: 'stop_record',
+        buttonClearRoute: 'clear_route',
+        buttonRefresh: 'refresh',
+        systemLogTitle: 'system_log',
+      };
+
+      Object.keys(textMap).forEach((id) => {
+        const key = textMap[id];
+        const element = document.getElementById(id);
+        if (element) {
+          element.textContent = t(key);
+        }
+      });
+
+      document.getElementById('modeNote').textContent = document.getElementById('run_mode').value === '1'
+        ? t('mode_note_manual')
+        : t('mode_note_autopilot');
+      document.getElementById('lidarHint').textContent = t('lidar_hint');
+      document.getElementById('cameraHint').textContent = t('camera_hint');
+      document.getElementById('drivePcaHint').textContent = t('drive_pca_hint');
+      document.getElementById('servoPcaHint').textContent = t('servo_pca_hint');
+      document.getElementById('manualHint').textContent = manualDriveEnabled
+        ? t('manual_hold_hint')
+        : t('manual_locked');
+      document.getElementById('modelHint').textContent = t('local_models_hint');
+      document.getElementById('videoOverlay').textContent = t('video_waiting');
+      const scoopDownButton = document.querySelector('[onclick="bucket(\'scoop_down\')"]');
+      const scoopUpButton = document.querySelector('[onclick="bucket(\'scoop_up\')"]');
+      if (scoopDownButton) scoopDownButton.textContent = t('scoop_down');
+      if (scoopUpButton) scoopUpButton.textContent = t('scoop_up');
+    }
+
+    function setLanguage(lang) {
+      currentLanguage = translations[lang] ? lang : 'ru';
+      localStorage.setItem('robot_ui_language', currentLanguage);
+      document.documentElement.lang = currentLanguage;
+      const select = document.getElementById('languageSelect');
+      if (select) {
+        select.value = currentLanguage;
+      }
+      updateStaticTexts();
+      if (lastStatus) {
+        updateStatusUi(lastStatus);
+      } else {
+        document.getElementById('heroStatus').textContent = t('loading');
+        setLog('');
+      }
+    }
+
+    function markFieldTouched(event) {
+      touchedFields.add(event.target.id);
+      if (event.target.id === 'run_mode') {
+        document.getElementById('modeNote').textContent = event.target.value === '1'
+          ? t('mode_note_manual')
+          : t('mode_note_autopilot');
+      }
+      if (event.target.id === 'yolo_choice') {
+        updateModelSelectEnabled();
+      }
+    }
+
+    function clearTouchedFields() {
+      touchedFields.clear();
+    }
+
+    function bindConfigInputs() {
+      configFieldIds.forEach((id) => {
+        const element = document.getElementById(id);
+        if (!element) return;
+        element.addEventListener('input', markFieldTouched);
+        element.addEventListener('change', markFieldTouched);
+      });
+      updateModelSelectEnabled();
+    }
+
+    function updateModelSelectEnabled() {
+      const source = document.getElementById('yolo_choice').value;
+      document.getElementById('selected_model_name').disabled = source !== '2';
+    }
+
+    function setFieldValue(id, value, force) {
+      const element = document.getElementById(id);
+      if (!element) return;
+      if (!force && touchedFields.has(id)) return;
+      element.value = value;
+    }
+
+    function updateModelOptions(models, selectedValue, force) {
+      const select = document.getElementById('selected_model_name');
+      if (!force && touchedFields.has('selected_model_name')) {
+        return;
+      }
+      const safeModels = Array.isArray(models) ? models : [];
+      const preferredValue = force ? (selectedValue || '') : (select.value || selectedValue || '');
+      const optionMarkup = [`<option value="">${t('auto_model')}</option>`];
+      safeModels.forEach((name) => {
+        const safeName = String(name).split('"').join('&quot;');
+        optionMarkup.push(`<option value="${safeName}">${name}</option>`);
+      });
+      select.innerHTML = optionMarkup.join('');
+      if (!safeModels.length) {
+        select.innerHTML = `<option value="">${t('no_models')}</option>`;
+      }
+      const hasPreferred = Array.from(select.options).some((option) => option.value === preferredValue);
+      select.value = hasPreferred ? preferredValue : '';
+      updateModelSelectEnabled();
+    }
+
+    function formPayload() {
+      return {
+        lidar_port: document.getElementById('lidar_port').value.trim(),
+        drive_pca_address: document.getElementById('drive_pca_address').value.trim(),
+        servo_pca_address: document.getElementById('servo_pca_address').value.trim(),
+        bucket_servo_channel: parseInt(document.getElementById('bucket_servo_channel').value || '0', 10),
+        camera_port: document.getElementById('camera_port').value.trim(),
+        camera_stream_port: parseInt(document.getElementById('camera_stream_port').value || '5000', 10),
+        run_mode: document.getElementById('run_mode').value,
+        auto_speed: parseInt(document.getElementById('auto_speed').value || '1500', 10),
+        manual_speed: parseInt(document.getElementById('manual_speed').value || '1400', 10),
+        yolo_choice: document.getElementById('yolo_choice').value,
+        route_source_mode: document.getElementById('route_source_mode').value,
+        route_corridor_m: parseFloat(document.getElementById('route_corridor_m').value || '3.0'),
+        slam_route_record_step_m: parseFloat(document.getElementById('slam_route_record_step_m').value || '0.35'),
+        selected_model_name: document.getElementById('selected_model_name').value.trim(),
+      };
+    }
+
+    function applyConfig(config, options) {
+      const force = Boolean(options && options.force);
+      if (!config) return;
+      setFieldValue('lidar_port', config.lidar_port || '', force);
+      setFieldValue('drive_pca_address', config.drive_pca_address || '0x40', force);
+      setFieldValue('servo_pca_address', config.servo_pca_address || '0x42', force);
+      setFieldValue('bucket_servo_channel', config.bucket_servo_channel != null ? config.bucket_servo_channel : 0, force);
+      setFieldValue('camera_port', config.camera_port || '', force);
+      setFieldValue('camera_stream_port', config.camera_stream_port != null ? config.camera_stream_port : 5000, force);
+      setFieldValue('run_mode', String(config.run_mode || '2'), force);
+      setFieldValue('auto_speed', config.auto_speed != null ? config.auto_speed : 1500, force);
+      setFieldValue('manual_speed', config.manual_speed != null ? config.manual_speed : 1400, force);
+      setFieldValue('yolo_choice', String(config.yolo_choice || '1'), force);
+      setFieldValue('route_source_mode', String(config.route_source_mode || 'none'), force);
+      setFieldValue('route_corridor_m', config.route_corridor_m != null ? config.route_corridor_m : 3.0, force);
+      setFieldValue('slam_route_record_step_m', config.slam_route_record_step_m != null ? config.slam_route_record_step_m : 0.35, force);
+      updateModelOptions(config.available_models || [], config.selected_model_name || '', force);
+      document.getElementById('modeNote').textContent = document.getElementById('run_mode').value === '1'
+        ? t('mode_note_manual')
+        : t('mode_note_autopilot');
+      updateModelSelectEnabled();
+    }
+
+    function setLog(text) {
+      document.getElementById('logBox').textContent = text || t('no_messages');
+    }
+
+    function setFetchError(error) {
+      const details = (error && error.message) ? error.message : 'request failed';
+      document.getElementById('heroStatus').textContent = `${t('error_prefix')}: ${details}`;
+      document.getElementById('heroStatus').style.background = 'rgba(255,107,107,0.15)';
+      setLog(`${t('error_prefix')}: ${details}`);
+    }
+
+    function formatUptime(seconds) {
+      if (typeof seconds !== 'number') return '--';
+      const hrs = Math.floor(seconds / 3600);
+      const mins = Math.floor((seconds % 3600) / 60);
+      const secs = seconds % 60;
+      if (hrs > 0) {
+        return `${hrs}h ${mins}m ${secs}s`;
+      }
+      if (mins > 0) {
+        return `${mins}m ${secs}s`;
+      }
+      return `${secs}s`;
+    }
+
+    function formatPose(pose) {
+      if (!pose || typeof pose !== 'object') return '--';
+      const x = typeof pose.x === 'number' ? pose.x.toFixed(2) : '--';
+      const y = typeof pose.y === 'number' ? pose.y.toFixed(2) : '--';
+      const theta = typeof pose.theta === 'number' ? pose.theta.toFixed(2) : '--';
+      return `${x}, ${y}, ${theta}`;
+    }
+
+    function updateDeviceHints(status) {
+      const serialPorts = Array.isArray(status.available_serial_ports) ? status.available_serial_ports : [];
+      const cameraPorts = Array.isArray(status.available_camera_ports) ? status.available_camera_ports : [];
+      const i2cAddresses = Array.isArray(status.available_i2c_addresses) ? status.available_i2c_addresses : [];
+
+      document.getElementById('lidarHint').textContent = serialPorts.length
+        ? `Detected serial: ${serialPorts.join(', ')}`
+        : t('lidar_hint');
+      document.getElementById('cameraHint').textContent = cameraPorts.length
+        ? `Detected video: ${cameraPorts.join(', ')}`
+        : t('camera_hint');
+      document.getElementById('drivePcaHint').textContent = i2cAddresses.length
+        ? `Detected I2C: ${i2cAddresses.join(', ')}`
+        : t('drive_pca_hint');
+      document.getElementById('servoPcaHint').textContent = i2cAddresses.length
+        ? `Detected I2C: ${i2cAddresses.join(', ')}. ${t('servo_pca_hint')}`
+        : t('servo_pca_hint');
+    }
+
+    function updateDriveControls(status) {
+      manualDriveEnabled = Boolean(status.running && status.mode === 'manual');
+      document.querySelectorAll('[data-drive]').forEach((button) => {
+        const isStop = button.dataset.drive === 'stop';
+        button.disabled = !manualDriveEnabled && !isStop;
+      });
+      document.getElementById('manualHint').textContent = manualDriveEnabled
+        ? t('manual_hold_hint')
+        : t('manual_locked');
+      if (!manualDriveEnabled) {
+        activeDriveAction = null;
+        activeDriveKeyCode = null;
+      }
+    }
+
+    function updateStatusUi(status, options) {
+      const forceConfig = Boolean(options && options.forceConfig);
+      lastStatus = status;
+      const configForUi = {};
+      const statusConfig = status && status.config ? status.config : {};
+      Object.keys(statusConfig).forEach((key) => {
+        configForUi[key] = statusConfig[key];
+      });
+      configForUi.available_models = status.available_models || [];
+      applyConfig(configForUi, { force: forceConfig });
+      const routeSourceLabels = {
+        none: t('disabled'),
+        slam: t('route_slam'),
+        gps: t('route_gps'),
+      };
+      let routeSummary = t('disabled');
+      let modelSummary = t('disabled');
+      if (status.route_source_mode === 'slam') {
+        routeSummary = `${status.slam_route_points || 0} ${t('points_short')}`;
+        if (typeof status.route_distance_m === 'number') {
+          routeSummary += ` | ${status.route_distance_m.toFixed(2)} ${t('meters_short')}`;
+        }
+        if (status.slam_route_recording) {
+          routeSummary += ` | ${t('recording')}`;
+        }
+      } else if (status.route_source_mode === 'gps') {
+        routeSummary = status.route_fresh ? t('phone_route_active') : t('waiting_phone_route');
+        if (typeof status.route_distance_m === 'number') {
+          routeSummary += ` | ${status.route_distance_m.toFixed(2)} ${t('meters_short')}`;
+        }
+        if (status.route_enabled) {
+          routeSummary += status.route_within_corridor ? ` | ${t('inside_corridor')}` : ` | ${t('outside_corridor')}`;
+        }
+      }
+      if (status.selected_model_name) {
+        modelSummary = status.selected_model_name;
+      } else if (status.config && status.config.yolo_choice === '2') {
+        modelSummary = (status.available_models && status.available_models.length)
+          ? t('auto_model')
+          : t('no_models');
+      } else if (status.config && status.config.yolo_choice === '1') {
+        modelSummary = t('phone_none');
+      }
+
+      document.getElementById('heroStatus').textContent = status.running
+        ? `${t('running')}: ${translateMode(status.mode)}`
+        : t('stopped');
+      document.getElementById('heroStatus').style.background = status.running
+        ? 'rgba(61,220,151,0.18)'
+        : 'rgba(255,107,107,0.15)';
+      document.getElementById('statRunning').textContent = status.running ? t('online') : t('offline');
+      document.getElementById('statMode').textContent = translateMode(status.mode);
+      document.getElementById('statVideo').textContent = status.video_stream_active ? status.stream_url : t('stopped');
+      document.getElementById('statTrash').textContent = translateTrashSummary(status.trash_summary);
+      document.getElementById('statServoController').textContent = status.bucket_servo_controller_connected ? t('connected') : t('disconnected');
+      document.getElementById('statModel').textContent = modelSummary;
+      document.getElementById('statRouteSource').textContent = routeSourceLabels[status.route_source_mode] || status.route_source_mode || 'disabled';
+      document.getElementById('statRoute').textContent = routeSummary;
+      document.getElementById('statLidar').textContent = status.lidar_running ? t('connected') : t('disconnected');
+      document.getElementById('statUptime').textContent = formatUptime(status.uptime_sec);
+      document.getElementById('statSpeed').textContent = typeof status.current_speed === 'number' ? String(status.current_speed) : '--';
+      document.getElementById('statPose').textContent = formatPose(status.slam_pose);
+
+      const logLines = [
+        status.message || '',
+        status.error ? `${t('error_prefix')}: ${status.error}` : '',
+        status.stream_url ? `${t('stream_prefix')}: ${status.stream_url}` : '',
+        status.video_source ? `Camera: ${status.video_source}` : '',
+        status.video_error ? `${t('error_prefix')}: ${status.video_error}` : '',
+        status.i2c_error ? `${t('error_prefix')}: ${status.i2c_error}` : '',
+        status.config_error ? `${t('error_prefix')}: ${status.config_error}` : '',
+        status.detector_debug ? `${t('detector_prefix')}: ${status.detector_debug}` : '',
+        status.route_debug ? `${t('route_prefix')}: ${status.route_debug}` : '',
+      ].filter(Boolean);
+      setLog(logLines.join('\\n'));
+
+      const video = document.getElementById('videoFrame');
+      const overlay = document.getElementById('videoOverlay');
+      if (status.stream_url && video.dataset.currentSrc !== status.stream_url) {
+        video.src = status.stream_url + '?t=' + Date.now();
+        video.dataset.currentSrc = status.stream_url;
+      }
+      if (!status.stream_url) {
+        video.removeAttribute('src');
+        video.dataset.currentSrc = '';
+      }
+      overlay.style.display = status.stream_url ? 'none' : 'flex';
+      updateDeviceHints(status);
+      updateDriveControls(status);
+    }
+
+    function api(path, payload) {
+      return fetch(path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload || {}),
+      })
+        .then((response) => {
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+          }
+          return response.json();
+        })
+        .then((data) => {
+          clearTouchedFields();
+          updateStatusUi(data, { forceConfig: true });
+          return data;
+        })
+        .catch((error) => {
+          setFetchError(error);
+          throw error;
+        });
+    }
+
+    function saveConfig() {
+      return api('/api/config', formPayload());
+    }
+
+    function startRobot() {
+      return api('/api/start', formPayload());
+    }
+
+    function stopRobot() {
+      return api('/api/stop', {});
+    }
+
+    function prepareBucket() {
+      return api('/api/bucket', { action: 'prepare' });
+    }
+
+    function drive(action) {
+      const payload = { action, speed: parseInt(document.getElementById('manual_speed').value || '1400', 10) };
+      return api('/api/drive', payload);
+    }
+
+    function bucket(action) {
+      return api('/api/bucket', { action });
+    }
+
+    function slamRoute(action) {
+      return api('/api/slam_route', { action });
+    }
+
+    function refreshStatus() {
+      return fetch('/api/status')
+        .then((response) => {
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+          }
+          return response.json();
+        })
+        .then((data) => {
+          updateStatusUi(data);
+          return data;
+        })
+        .catch((error) => {
+          setFetchError(error);
+        });
+    }
+
+    function engageDrive(action, keyCode) {
+      if (typeof keyCode === 'undefined') {
+        keyCode = null;
+      }
+      if (!manualDriveEnabled && action !== 'stop') {
+        return;
+      }
+      if (activeDriveAction === action && activeDriveKeyCode === keyCode) {
+        return;
+      }
+      activeDriveAction = action;
+      activeDriveKeyCode = keyCode;
+      drive(action);
+    }
+
+    function releaseDrive(keyCode) {
+      if (typeof keyCode === 'undefined') {
+        keyCode = null;
+      }
+      if (keyCode && activeDriveKeyCode && keyCode !== activeDriveKeyCode) {
+        return;
+      }
+      if (!activeDriveAction) {
+        return;
+      }
+      activeDriveAction = null;
+      activeDriveKeyCode = null;
+      drive('stop');
+    }
+
+    function bindDriveControls() {
+      document.querySelectorAll('[data-drive]').forEach((button) => {
+        const action = button.dataset.drive;
+        if (action === 'stop') {
+          button.addEventListener('click', () => {
+            activeDriveAction = null;
+            activeDriveKeyCode = null;
+            drive('stop');
+          });
+          return;
+        }
+        button.addEventListener('pointerdown', (event) => {
+          event.preventDefault();
+          if (button.setPointerCapture) {
+            button.setPointerCapture(event.pointerId);
+          }
+          engageDrive(action);
+        });
+        ['pointerup', 'pointercancel', 'lostpointercapture'].forEach((name) => {
+          button.addEventListener(name, () => releaseDrive());
+        });
+      });
+
+      document.addEventListener('keydown', (event) => {
+        const action = keyDriveMap[event.code];
+        if (!action || event.repeat) {
+          return;
+        }
+        const activeElement = document.activeElement;
+        const tag = activeElement ? activeElement.tagName : '';
+        if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') {
+          return;
+        }
+        event.preventDefault();
+        if (action === 'stop') {
+          releaseDrive();
+          return;
+        }
+        engageDrive(action, event.code);
+      });
+
+      document.addEventListener('keyup', (event) => {
+        if (!keyDriveMap[event.code]) {
+          return;
+        }
+        event.preventDefault();
+        releaseDrive(event.code);
+      });
+
+      window.addEventListener('blur', () => releaseDrive());
+      document.addEventListener('visibilitychange', () => {
+        if (document.hidden) {
+          releaseDrive();
+        }
+      });
+    }
+
+    bindConfigInputs();
+    bindDriveControls();
+    setLanguage(currentLanguage);
+    applyConfig({
       lidar_port: '/dev/ttyUSB0',
       drive_pca_address: '0x40',
       servo_pca_address: '0x42',
@@ -553,505 +1321,9 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
       route_source_mode: 'none',
       route_corridor_m: 3.0,
       slam_route_record_step_m: 0.35,
-      selected_model_name: ''
-    };
-
-    function byId(id) {
-      return document.getElementById(id);
-    }
-
-    function setLanguage(lang) {
-      var nextLang = lang || 'ru';
-      try {
-        localStorage.setItem('robot_ui_language', nextLang);
-      } catch (e) {}
-      document.documentElement.lang = nextLang;
-      var select = byId('languageSelect');
-      if (select) {
-        select.value = nextLang;
-      }
-    }
-
-    function restoreLanguage() {
-      var saved = 'ru';
-      try {
-        saved = localStorage.getItem('robot_ui_language') || 'ru';
-      } catch (e) {}
-      setLanguage(saved);
-    }
-
-    function setLog(text) {
-      var logBox = byId('logBox');
-      if (logBox) {
-        logBox.textContent = text || '';
-      }
-    }
-
-    function setFetchError(error) {
-      var details = 'request failed';
-      if (error) {
-        if (typeof error === 'string') {
-          details = error;
-        } else if (error.message) {
-          details = error.message;
-        }
-      }
-      var hero = byId('heroStatus');
-      if (hero) {
-        hero.textContent = 'Ошибка: ' + details;
-        hero.style.background = 'rgba(255,107,107,0.15)';
-      }
-      setLog('Ошибка: ' + details);
-    }
-
-    function updateModeNote() {
-      var modeNote = byId('modeNote');
-      var runMode = byId('run_mode');
-      if (!modeNote || !runMode) {
-        return;
-      }
-      if (runMode.value === '1') {
-        modeNote.textContent = 'Ручной режим: кнопки и клавиши управления активируются после старта.';
-      } else {
-        modeNote.textContent = 'Автопилот: LiDAR, камера и детектор запускаются вместе.';
-      }
-    }
-
-    function updateModelSelectEnabled() {
-      var source = byId('yolo_choice');
-      var modelSelect = byId('selected_model_name');
-      if (source && modelSelect) {
-        modelSelect.disabled = source.value !== '2';
-      }
-    }
-
-    function markFieldTouched(event) {
-      if (event && event.target && event.target.id) {
-        touchedFields[event.target.id] = true;
-      }
-      updateModeNote();
-      updateModelSelectEnabled();
-    }
-
-    function clearTouchedFields() {
-      touchedFields = {};
-    }
-
-    function bindConfigInputs() {
-      var i;
-      for (i = 0; i < configFieldIds.length; i += 1) {
-        var element = byId(configFieldIds[i]);
-        if (!element) {
-          continue;
-        }
-        element.addEventListener('input', markFieldTouched);
-        element.addEventListener('change', markFieldTouched);
-      }
-      updateModeNote();
-      updateModelSelectEnabled();
-    }
-
-    function setFieldValue(id, value, force) {
-      var element = byId(id);
-      if (!element) {
-        return;
-      }
-      if (!force && touchedFields[id]) {
-        return;
-      }
-      if (value === null || typeof value === 'undefined') {
-        value = '';
-      }
-      element.value = value;
-    }
-
-    function updateModelOptions(models, selectedValue, force) {
-      var select = byId('selected_model_name');
-      var i;
-      if (!select) {
-        return;
-      }
-      if (!force && touchedFields.selected_model_name) {
-        return;
-      }
-      select.innerHTML = '';
-
-      var autoOption = document.createElement('option');
-      autoOption.value = '';
-      autoOption.textContent = 'Автовыбор модели';
-      select.appendChild(autoOption);
-
-      if (models && models.length) {
-        for (i = 0; i < models.length; i += 1) {
-          var option = document.createElement('option');
-          option.value = String(models[i]);
-          option.textContent = String(models[i]);
-          select.appendChild(option);
-        }
-      } else {
-        autoOption.textContent = 'Локальные модели не найдены';
-      }
-
-      select.value = selectedValue || '';
-      updateModelSelectEnabled();
-    }
-
-    function formPayload() {
-      return {
-        lidar_port: byId('lidar_port').value.trim(),
-        drive_pca_address: byId('drive_pca_address').value.trim(),
-        servo_pca_address: byId('servo_pca_address').value.trim(),
-        bucket_servo_channel: parseInt(byId('bucket_servo_channel').value || '0', 10),
-        camera_port: byId('camera_port').value.trim(),
-        camera_stream_port: parseInt(byId('camera_stream_port').value || '5000', 10),
-        run_mode: byId('run_mode').value,
-        auto_speed: parseInt(byId('auto_speed').value || '1500', 10),
-        manual_speed: parseInt(byId('manual_speed').value || '1400', 10),
-        yolo_choice: byId('yolo_choice').value,
-        route_source_mode: byId('route_source_mode').value,
-        route_corridor_m: parseFloat(byId('route_corridor_m').value || '3.0'),
-        slam_route_record_step_m: parseFloat(byId('slam_route_record_step_m').value || '0.35'),
-        selected_model_name: byId('selected_model_name').value.trim()
-      };
-    }
-
-    function applyConfig(config, force) {
-      config = config || {};
-      setFieldValue('lidar_port', config.lidar_port || defaultConfig.lidar_port, force);
-      setFieldValue('drive_pca_address', config.drive_pca_address || defaultConfig.drive_pca_address, force);
-      setFieldValue('servo_pca_address', config.servo_pca_address || defaultConfig.servo_pca_address, force);
-      setFieldValue('bucket_servo_channel', typeof config.bucket_servo_channel !== 'undefined' ? config.bucket_servo_channel : defaultConfig.bucket_servo_channel, force);
-      setFieldValue('camera_port', config.camera_port || defaultConfig.camera_port, force);
-      setFieldValue('camera_stream_port', typeof config.camera_stream_port !== 'undefined' ? config.camera_stream_port : defaultConfig.camera_stream_port, force);
-      setFieldValue('run_mode', config.run_mode || defaultConfig.run_mode, force);
-      setFieldValue('auto_speed', typeof config.auto_speed !== 'undefined' ? config.auto_speed : defaultConfig.auto_speed, force);
-      setFieldValue('manual_speed', typeof config.manual_speed !== 'undefined' ? config.manual_speed : defaultConfig.manual_speed, force);
-      setFieldValue('yolo_choice', config.yolo_choice || defaultConfig.yolo_choice, force);
-      setFieldValue('route_source_mode', config.route_source_mode || defaultConfig.route_source_mode, force);
-      setFieldValue('route_corridor_m', typeof config.route_corridor_m !== 'undefined' ? config.route_corridor_m : defaultConfig.route_corridor_m, force);
-      setFieldValue('slam_route_record_step_m', typeof config.slam_route_record_step_m !== 'undefined' ? config.slam_route_record_step_m : defaultConfig.slam_route_record_step_m, force);
-      updateModelOptions(config.available_models || [], config.selected_model_name || '', force);
-      updateModeNote();
-      updateModelSelectEnabled();
-    }
-
-    function formatUptime(seconds) {
-      if (typeof seconds !== 'number') {
-        return '--';
-      }
-      var hrs = Math.floor(seconds / 3600);
-      var mins = Math.floor((seconds % 3600) / 60);
-      var secs = Math.floor(seconds % 60);
-      if (hrs > 0) {
-        return hrs + 'h ' + mins + 'm ' + secs + 's';
-      }
-      if (mins > 0) {
-        return mins + 'm ' + secs + 's';
-      }
-      return secs + 's';
-    }
-
-    function formatPose(pose) {
-      if (!pose || typeof pose !== 'object') {
-        return '--';
-      }
-      var x = typeof pose.x === 'number' ? pose.x.toFixed(2) : '--';
-      var y = typeof pose.y === 'number' ? pose.y.toFixed(2) : '--';
-      var theta = typeof pose.theta === 'number' ? pose.theta.toFixed(2) : '--';
-      return x + ', ' + y + ', ' + theta;
-    }
-
-    function updateDeviceHints(status) {
-      var serialText = 'Detected serial ports will appear here.';
-      var cameraText = 'Detected video devices will appear here.';
-      var i2cText = 'Detected I2C addresses will appear here.';
-
-      if (status.available_serial_ports && status.available_serial_ports.length) {
-        serialText = 'Detected serial: ' + status.available_serial_ports.join(', ');
-      }
-      if (status.available_camera_ports && status.available_camera_ports.length) {
-        cameraText = 'Detected video: ' + status.available_camera_ports.join(', ');
-      }
-      if (status.available_i2c_addresses && status.available_i2c_addresses.length) {
-        i2cText = 'Detected I2C: ' + status.available_i2c_addresses.join(', ');
-      }
-
-      if (byId('lidarHint')) byId('lidarHint').textContent = serialText;
-      if (byId('cameraHint')) byId('cameraHint').textContent = cameraText;
-      if (byId('drivePcaHint')) byId('drivePcaHint').textContent = i2cText;
-      if (byId('servoPcaHint')) byId('servoPcaHint').textContent = i2cText + '. Do not use 0x70 as a board address.';
-    }
-
-    function updateDriveControls(status) {
-      var buttons = document.querySelectorAll('[data-drive]');
-      var i;
-      manualDriveEnabled = !!(status.running && status.mode === 'manual');
-      for (i = 0; i < buttons.length; i += 1) {
-        var action = buttons[i].getAttribute('data-drive');
-        buttons[i].disabled = !manualDriveEnabled && action !== 'stop';
-      }
-      if (byId('manualHint')) {
-        byId('manualHint').textContent = manualDriveEnabled
-          ? 'Hold a direction button or use WASD / arrow keys. Release to stop.'
-          : 'Manual drive becomes available after starting the robot in manual mode.';
-      }
-    }
-
-    function updateStatusUi(status, forceConfig) {
-      var configForUi = {};
-      var key;
-      var routeSummary = 'disabled';
-      var modelSummary = 'disabled';
-      var logLines = [];
-      var hero = byId('heroStatus');
-      var video = byId('videoFrame');
-      var overlay = byId('videoOverlay');
-
-      status = status || {};
-      lastStatus = status;
-
-      for (key in defaultConfig) {
-        if (Object.prototype.hasOwnProperty.call(defaultConfig, key)) {
-          configForUi[key] = defaultConfig[key];
-        }
-      }
-      if (status.config) {
-        for (key in status.config) {
-          if (Object.prototype.hasOwnProperty.call(status.config, key)) {
-            configForUi[key] = status.config[key];
-          }
-        }
-      }
-      configForUi.available_models = status.available_models || [];
-      configForUi.selected_model_name = status.selected_model_name || configForUi.selected_model_name || '';
-      applyConfig(configForUi, !!forceConfig);
-
-      if (status.route_source_mode === 'slam') {
-        routeSummary = String(status.slam_route_points || 0) + ' pts';
-      } else if (status.route_source_mode === 'gps') {
-        routeSummary = status.route_fresh ? 'phone route active' : 'waiting for phone route';
-      }
-
-      if (status.selected_model_name) {
-        modelSummary = status.selected_model_name;
-      } else if (configForUi.yolo_choice === '2') {
-        modelSummary = (status.available_models && status.available_models.length) ? 'auto model' : 'no models';
-      } else if (configForUi.yolo_choice === '1') {
-        modelSummary = 'phone / none';
-      }
-
-      if (hero) {
-        hero.textContent = status.running ? ('Running: ' + (status.mode || '--')) : 'Stopped';
-        hero.style.background = status.running ? 'rgba(61,220,151,0.18)' : 'rgba(255,107,107,0.15)';
-      }
-      if (byId('statRunning')) byId('statRunning').textContent = status.running ? 'online' : 'offline';
-      if (byId('statMode')) byId('statMode').textContent = status.mode || '--';
-      if (byId('statVideo')) byId('statVideo').textContent = status.video_stream_active ? status.stream_url : 'stopped';
-      if (byId('statTrash')) byId('statTrash').textContent = status.trash_summary || 'disabled';
-      if (byId('statServoController')) byId('statServoController').textContent = status.bucket_servo_controller_connected ? 'connected' : 'disconnected';
-      if (byId('statModel')) byId('statModel').textContent = modelSummary;
-      if (byId('statRouteSource')) byId('statRouteSource').textContent = status.route_source_mode || 'none';
-      if (byId('statRoute')) byId('statRoute').textContent = routeSummary;
-      if (byId('statLidar')) byId('statLidar').textContent = status.lidar_running ? 'connected' : 'disconnected';
-      if (byId('statUptime')) byId('statUptime').textContent = formatUptime(status.uptime_sec);
-      if (byId('statSpeed')) byId('statSpeed').textContent = typeof status.current_speed === 'number' ? String(status.current_speed) : '--';
-      if (byId('statPose')) byId('statPose').textContent = formatPose(status.slam_pose);
-
-      if (status.message) logLines.push(status.message);
-      if (status.error) logLines.push('Error: ' + status.error);
-      if (status.stream_url) logLines.push('Stream: ' + status.stream_url);
-      if (status.video_source) logLines.push('Camera: ' + status.video_source);
-      if (status.video_error) logLines.push('Video: ' + status.video_error);
-      if (status.i2c_error) logLines.push('I2C: ' + status.i2c_error);
-      if (status.config_error) logLines.push('Config: ' + status.config_error);
-      if (status.route_debug) logLines.push('Route: ' + status.route_debug);
-      setLog(logLines.join('\n'));
-
-      if (video && overlay) {
-        if (status.stream_url) {
-          if (video.getAttribute('data-current-src') !== status.stream_url) {
-            video.src = status.stream_url + '?t=' + Date.now();
-            video.setAttribute('data-current-src', status.stream_url);
-          }
-          overlay.style.display = 'none';
-        } else {
-          video.removeAttribute('src');
-          video.setAttribute('data-current-src', '');
-          overlay.style.display = 'flex';
-        }
-      }
-
-      updateDeviceHints(status);
-      updateDriveControls(status);
-    }
-
-    function requestJson(method, url, payload, onSuccess, onError) {
-      var xhr = new XMLHttpRequest();
-      xhr.open(method, url, true);
-      xhr.setRequestHeader('Content-Type', 'application/json');
-      xhr.timeout = 2000;
-      xhr.onreadystatechange = function () {
-        var data;
-        if (xhr.readyState !== 4) {
-          return;
-        }
-        if (xhr.status < 200 || xhr.status >= 300) {
-          if (onError) onError(new Error('HTTP ' + xhr.status));
-          return;
-        }
-        try {
-          data = xhr.responseText ? JSON.parse(xhr.responseText) : {};
-        } catch (e) {
-          if (onError) onError(e);
-          return;
-        }
-        if (onSuccess) onSuccess(data);
-      };
-      xhr.ontimeout = function () {
-        if (onError) onError(new Error('request timeout'));
-      };
-      xhr.onerror = function () {
-        if (onError) onError(new Error('network error'));
-      };
-      xhr.send(payload ? JSON.stringify(payload) : null);
-    }
-
-    function refreshStatus() {
-      requestJson('GET', '/api/status', null, function (data) {
-        updateStatusUi(data, false);
-      }, setFetchError);
-    }
-
-    function api(path, payload) {
-      requestJson('POST', path, payload, function (data) {
-        clearTouchedFields();
-        updateStatusUi(data, true);
-      }, setFetchError);
-    }
-
-    function saveConfig() { api('/api/config', formPayload()); }
-    function startRobot() { api('/api/start', formPayload()); }
-    function stopRobot() { api('/api/stop', {}); }
-    function prepareBucket() { api('/api/bucket', { action: 'prepare' }); }
-    function drive(action) {
-      api('/api/drive', {
-        action: action,
-        speed: parseInt(byId('manual_speed').value || '1400', 10)
-      });
-    }
-    function bucket(action) { api('/api/bucket', { action: action }); }
-    function slamRoute(action) { api('/api/slam_route', { action: action }); }
-
-    function engageDrive(action, keyName) {
-      if (!manualDriveEnabled && action !== 'stop') {
-        return;
-      }
-      if (activeDriveAction === action && activeDriveKey === keyName) {
-        return;
-      }
-      activeDriveAction = action;
-      activeDriveKey = keyName || '';
-      drive(action);
-    }
-
-    function releaseDrive(keyName) {
-      if (keyName && activeDriveKey && keyName !== activeDriveKey) {
-        return;
-      }
-      if (!activeDriveAction) {
-        return;
-      }
-      activeDriveAction = null;
-      activeDriveKey = '';
-      drive('stop');
-    }
-
-    function keyToAction(keyCode) {
-      if (keyCode === 38 || keyCode === 87) return 'forward';
-      if (keyCode === 40 || keyCode === 83) return 'backward';
-      if (keyCode === 37 || keyCode === 65) return 'left';
-      if (keyCode === 39 || keyCode === 68) return 'right';
-      if (keyCode === 32) return 'stop';
-      return '';
-    }
-
-    function bindDriveControls() {
-      var buttons = document.querySelectorAll('[data-drive]');
-      var i;
-      for (i = 0; i < buttons.length; i += 1) {
-        (function (button) {
-          var action = button.getAttribute('data-drive');
-          if (action === 'stop') {
-            button.addEventListener('click', function () {
-              activeDriveAction = null;
-              activeDriveKey = '';
-              drive('stop');
-            });
-            return;
-          }
-          button.addEventListener('mousedown', function (event) {
-            event.preventDefault();
-            engageDrive(action, '');
-          });
-          button.addEventListener('mouseup', function () {
-            releaseDrive('');
-          });
-          button.addEventListener('mouseleave', function () {
-            releaseDrive('');
-          });
-          button.addEventListener('touchstart', function (event) {
-            event.preventDefault();
-            engageDrive(action, '');
-          }, { passive: false });
-          button.addEventListener('touchend', function () {
-            releaseDrive('');
-          });
-          button.addEventListener('touchcancel', function () {
-            releaseDrive('');
-          });
-        }(buttons[i]));
-      }
-
-      document.addEventListener('keydown', function (event) {
-        var tag;
-        var action = keyToAction(event.keyCode);
-        if (!action || event.repeat) {
-          return;
-        }
-        tag = document.activeElement ? document.activeElement.tagName : '';
-        if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') {
-          return;
-        }
-        event.preventDefault();
-        if (action === 'stop') {
-          releaseDrive('key-' + event.keyCode);
-          return;
-        }
-        engageDrive(action, 'key-' + event.keyCode);
-      });
-
-      document.addEventListener('keyup', function (event) {
-        if (!keyToAction(event.keyCode)) {
-          return;
-        }
-        event.preventDefault();
-        releaseDrive('key-' + event.keyCode);
-      });
-
-      window.addEventListener('blur', function () {
-        releaseDrive('');
-      });
-      document.addEventListener('visibilitychange', function () {
-        if (document.hidden) {
-          releaseDrive('');
-        }
-      });
-    }
-
-    restoreLanguage();
-    bindConfigInputs();
-    bindDriveControls();
-    applyConfig(defaultConfig, true);
+      available_models: [],
+      selected_model_name: '',
+    }, { force: true });
     refreshStatus();
     setInterval(refreshStatus, 1200);
   </script>
@@ -1290,7 +1562,7 @@ class RobotManager:
                 self.error = f"Autopilot crashed: {exc}"
                 self.message = "Autopilot stopped with an error."
                 self._notify_status(
-                    f"РћС€РёР±РєР° Р°РІС‚РѕРїРёР»РѕС‚Р°: {exc}",
+                    f"Ошибка автопилота: {exc}",
                     dedupe_key="autopilot_error",
                     dedupe_window_sec=30.0,
                 )
@@ -1375,14 +1647,14 @@ class RobotManager:
                     self.worker_thread.start()
                     self.message = "Robot started in autopilot mode."
                     self._notify_status(
-                        f"Р РѕР±РѕС‚ РїРѕРµС…Р°Р».\nР РµР¶РёРј: Р°РІС‚РѕРїРёР»РѕС‚.\nРЎРєРѕСЂРѕСЃС‚СЊ: {auto_speed}.",
+                        f"Робот поехал.\nРежим: автопилот.\nСкорость: {auto_speed}.",
                         dedupe_key="robot_started_autopilot",
                     )
                 else:
                     self.mode = "manual"
                     self.message = "Robot started in manual web-control mode."
                     self._notify_status(
-                        "Р РѕР±РѕС‚ РіРѕС‚РѕРІ.\nР РµР¶РёРј: СЂСѓС‡РЅРѕРµ СѓРїСЂР°РІР»РµРЅРёРµ С‡РµСЂРµР· РІРµР±-РёРЅС‚РµСЂС„РµР№СЃ.",
+                        "Робот готов.\nРежим: ручное управление через веб-интерфейс.",
                         dedupe_key="robot_started_manual",
                     )
 
@@ -1396,7 +1668,7 @@ class RobotManager:
                 self.error = str(exc)
                 self.message = "Robot start failed."
                 self._notify_status(
-                    f"РќРµ СѓРґР°Р»РѕСЃСЊ Р·Р°РїСѓСЃС‚РёС‚СЊ СЂРѕР±РѕС‚Р°.\nРћС€РёР±РєР°: {exc}",
+                    f"Не удалось запустить робота.\nОшибка: {exc}",
                     dedupe_key="robot_start_failed",
                     dedupe_window_sec=30.0,
                 )
@@ -1410,7 +1682,7 @@ class RobotManager:
             self.error = ""
             self._shutdown_runtime()
             self.message = "Robot stopped."
-            self._notify_status("Р РѕР±РѕС‚ РѕСЃС‚Р°РЅРѕРІР»РµРЅ.", dedupe_key="robot_stopped")
+            self._notify_status("Робот остановлен.", dedupe_key="robot_stopped")
             return self.status()
 
     def prepare_bucket(self) -> Dict[str, Any]:
@@ -1421,7 +1693,7 @@ class RobotManager:
                 self.message = "Bucket moved to search position."
                 self.error = ""
                 self._notify_status(
-                    "Р РѕР±РѕС‚ РіРѕС‚РѕРІ.\nРљРѕРІС€ РїРµСЂРµРІРµРґРµРЅ РІ РїРѕРёСЃРєРѕРІРѕРµ РїРѕР»РѕР¶РµРЅРёРµ.",
+                    "Робот готов.\nКовш переведен в поисковое положение.",
                     dedupe_key="robot_ready",
                 )
             except Exception as exc:
@@ -1440,7 +1712,7 @@ class RobotManager:
             if action == "stop":
                 robot.stop_all()
                 self.message = "Emergency stop."
-                self._notify_status("Р­РєСЃС‚СЂРµРЅРЅР°СЏ РѕСЃС‚Р°РЅРѕРІРєР° СЂРѕР±РѕС‚Р°.", dedupe_key="manual_stop")
+                self._notify_status("Экстренная остановка робота.", dedupe_key="manual_stop")
                 return self.status()
 
             if self.mode != "manual":
@@ -1456,7 +1728,7 @@ class RobotManager:
                 robot.set_motors(speed, 0, speed, 0)
                 self.message = f"Driving forward at {speed}."
                 self._notify_status(
-                    f"Р РѕР±РѕС‚ РїРѕРµС…Р°Р» РІРїРµСЂРµРґ.\nРЎРєРѕСЂРѕСЃС‚СЊ: {speed}.",
+                    f"Робот поехал вперед.\nСкорость: {speed}.",
                     dedupe_key="manual_forward",
                 )
             elif action == "backward":
@@ -1465,7 +1737,7 @@ class RobotManager:
                 robot.set_motors(0, speed, 0, speed)
                 self.message = f"Driving backward at {speed}."
                 self._notify_status(
-                    f"Р РѕР±РѕС‚ РїРѕРµС…Р°Р» РЅР°Р·Р°Рґ.\nРЎРєРѕСЂРѕСЃС‚СЊ: {speed}.",
+                    f"Робот поехал назад.\nСкорость: {speed}.",
                     dedupe_key="manual_backward",
                 )
             elif action == "left":
@@ -1474,7 +1746,7 @@ class RobotManager:
                 robot.set_motors(speed, 0, 0, speed)
                 self.message = f"Turning left at {speed}."
                 self._notify_status(
-                    f"Р РѕР±РѕС‚ РїРѕРІРµСЂРЅСѓР» РІР»РµРІРѕ.\nРЎРєРѕСЂРѕСЃС‚СЊ: {speed}.",
+                    f"Робот повернул влево.\nСкорость: {speed}.",
                     dedupe_key="manual_left",
                 )
             elif action == "right":
@@ -1483,7 +1755,7 @@ class RobotManager:
                 robot.set_motors(0, speed, speed, 0)
                 self.message = f"Turning right at {speed}."
                 self._notify_status(
-                    f"Р РѕР±РѕС‚ РїРѕРІРµСЂРЅСѓР» РІРїСЂР°РІРѕ.\nРЎРєРѕСЂРѕСЃС‚СЊ: {speed}.",
+                    f"Робот повернул вправо.\nСкорость: {speed}.",
                     dedupe_key="manual_right",
                 )
             else:
@@ -1846,4 +2118,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
