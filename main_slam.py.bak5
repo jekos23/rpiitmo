@@ -1,4 +1,4 @@
-﻿import time
+import time
 import board
 import busio
 from adafruit_pca9685 import PCA9685
@@ -101,14 +101,14 @@ def prompt_for_serial_port(label, saved_port=None, forbidden_ports=None):
     candidates = [port for port in find_serial_candidates() if port not in forbidden_ports]
 
     if candidates:
-        print(f"\nР”РѕСЃС‚СѓРїРЅС‹Рµ РїРѕСЂС‚С‹ РґР»СЏ {label}:")
+        print(f"\nДоступные порты для {label}:")
         for port in candidates:
             print(f" - {port}")
 
     while True:
-        prompt = f"Р’РІРµРґРёС‚Рµ РїРѕСЂС‚ {label}"
+        prompt = f"Введите порт {label}"
         if saved_port:
-            prompt += f" (Enter РґР»СЏ {saved_port})"
+            prompt += f" (Enter для {saved_port})"
         prompt += ": "
 
         port = input(prompt).strip()
@@ -116,11 +116,11 @@ def prompt_for_serial_port(label, saved_port=None, forbidden_ports=None):
             port = saved_port
 
         if not port:
-            print(f"РџРѕСЂС‚ РґР»СЏ {label} РѕР±СЏР·Р°С‚РµР»РµРЅ.")
+            print(f"Порт для {label} обязателен.")
             continue
 
         if port in forbidden_ports:
-            print(f"РџРѕСЂС‚ {port} СѓР¶Рµ Р·Р°РЅСЏС‚ РґСЂСѓРіРёРј СѓСЃС‚СЂРѕР№СЃС‚РІРѕРј. Р”Р»СЏ {label} РЅСѓР¶РµРЅ РѕС‚РґРµР»СЊРЅС‹Р№ РїРѕСЂС‚.")
+            print(f"Порт {port} уже занят другим устройством. Для {label} нужен отдельный порт.")
             continue
 
         return port
@@ -217,7 +217,31 @@ def resolve_camera_port(camera_input):
 
     return camera_input
 
-# Override the prompt so camera address can be changed every start and can`r`n# be entered either as /dev/videoX or as a USB address like 001:010.
+def prompt_for_camera_port(saved_port=None):
+    candidates = find_camera_candidates()
+    if candidates:
+        print("\nДоступные видеоустройства:")
+        for port in candidates:
+            print(f" - {port}")
+
+    while True:
+        prompt = "Введите порт камеры"
+        if saved_port:
+            prompt += f" (Enter для {saved_port})"
+        prompt += ": "
+
+        camera_port = input(prompt).strip()
+        if not camera_port and saved_port:
+            camera_port = saved_port
+
+        if camera_port:
+            return camera_port
+
+        print("Порт камеры обязателен.")
+
+# Загружаем глобальный конфиг, чтобы к нему был доступ из любых функций
+# Override the prompt so camera address can be changed every start and can
+# be entered either as /dev/videoX or as a USB address like 001:010.
 def prompt_for_camera_port(saved_port=None):
     candidates = find_camera_candidates()
     if candidates:
@@ -446,13 +470,13 @@ def init_pca_controllers(config=None):
         pca_runtime_signature = None
         return False
 
-# РРЅРёС†РёР°Р»РёР·Р°С†РёСЏ I2C С€РёРЅС‹ Рё PCA9685
+# Инициализация I2C шины и PCA9685
 try:
     i2c = busio.I2C(board.SCL, board.SDA)
     pca = PCA9685(i2c)
     pca.frequency = 1000
 except Exception as e:
-    print(f"I2C/PCA9685 РёРЅРёС†РёР°Р»РёР·Р°С†РёСЏ РЅРµ СѓРґР°Р»Р°СЃСЊ (РµСЃР»Рё РІС‹ РЅР° РџРљ, СЌС‚Рѕ РЅРѕСЂРјР°Р»СЊРЅРѕ): {e}")
+    print(f"I2C/PCA9685 инициализация не удалась (если вы на ПК, это нормально): {e}")
     pca = None
 
 LEFT_FWD_CHANNELS = [0, 3, 5]
@@ -462,7 +486,7 @@ RIGHT_REV_CHANNELS = [6, 8, 10]
 
 init_pca_controllers(global_config)
 
-# Р“Р»РѕР±Р°Р»СЊРЅС‹Рµ РїРµСЂРµРјРµРЅРЅС‹Рµ СЃРѕСЃС‚РѕСЏРЅРёСЏ РґРІРёР¶РµРЅРёСЏ РґР»СЏ РїСЃРµРІРґРѕ-РѕРґРѕРјРµС‚СЂРёРё
+# Глобальные переменные состояния движения для псевдо-одометрии
 DRIVE_CHANNELS = set(LEFT_FWD_CHANNELS + LEFT_REV_CHANNELS + RIGHT_FWD_CHANNELS + RIGHT_REV_CHANNELS)
 BUCKET_MOTOR_DEFAULT_FWD_CHANNEL = 12
 BUCKET_MOTOR_DEFAULT_REV_CHANNEL = 13
@@ -490,14 +514,14 @@ latest_slam_pose = None
 slam_route_recording_active = False
 slam_route_last_saved_pose = None
 
-# РџР°СЂР°РјРµС‚СЂС‹ СЂРѕР±РѕС‚Р° (РѕР±РЅРѕРІР»РµРЅС‹ РїРѕ РІР°С€РёРј СЂР°Р·РјРµСЂР°Рј)
-WHEEL_CIRCUMFERENCE = 0.39 # Р”Р»РёРЅР° РѕРєСЂСѓР¶РЅРѕСЃС‚Рё РєРѕР»РµСЃР° РІ РјРµС‚СЂР°С… (39 СЃРј)
-MAX_WHEEL_RPM = 120.0      # Р—РЅР°С‡РµРЅРёРµ РїРѕ СѓРјРѕР»С‡Р°РЅРёСЋ, Р±СѓРґРµС‚ РїРµСЂРµР·Р°РїРёСЃР°РЅРѕ РїСЂРё РєР°Р»РёР±СЂРѕРІРєРµ
-ROBOT_TRACK_WIDTH = 0.55   # РЁРёСЂРёРЅР° РєРѕР»РµСЃРЅРѕР№ Р±Р°Р·С‹ (55 СЃРј)
-# Р¦РµРЅС‚СЂ СЂРѕР±РѕС‚Р° = (0, 0). Р—Р°РґРЅРёР№ РїСЂР°РІС‹Р№ СѓРіРѕР» = X: -0.31Рј, Y: -0.275Рј. 
-# Р›РёРґР°СЂ РЅР° Р±Р°Р»РєРµ 14СЃРј РѕС‚ Р·Р°РґРЅРµРіРѕ СѓРіР»Р° -> X: -0.31 + 0.14 = -0.17Рј, Y: -0.275Рј
-LIDAR_OFFSET_X = -0.17     # РЎРјРµС‰РµРЅРёРµ Р»РёРґР°СЂР° РїРѕ РѕСЃРё X (РЅР°Р·Р°Рґ РѕС‚ С†РµРЅС‚СЂР°)
-LIDAR_OFFSET_Y = -0.275    # РЎРјРµС‰РµРЅРёРµ Р»РёРґР°СЂР° РїРѕ РѕСЃРё Y (РІРїСЂР°РІРѕ РѕС‚ С†РµРЅС‚СЂР°)
+# Параметры робота (обновлены по вашим размерам)
+WHEEL_CIRCUMFERENCE = 0.39 # Длина окружности колеса в метрах (39 см)
+MAX_WHEEL_RPM = 120.0      # Значение по умолчанию, будет перезаписано при калибровке
+ROBOT_TRACK_WIDTH = 0.55   # Ширина колесной базы (55 см)
+# Центр робота = (0, 0). Задний правый угол = X: -0.31м, Y: -0.275м. 
+# Лидар на балке 14см от заднего угла -> X: -0.31 + 0.14 = -0.17м, Y: -0.275м
+LIDAR_OFFSET_X = -0.17     # Смещение лидара по оси X (назад от центра)
+LIDAR_OFFSET_Y = -0.275    # Смещение лидара по оси Y (вправо от центра)
 
 def set_motors(left_fwd, left_rev, right_fwd, right_rev):
     if not pca and not init_pca_controllers(global_config):
@@ -519,36 +543,36 @@ def set_motors(left_fwd, left_rev, right_fwd, right_rev):
 def _legacy_set_servo_bucket(down=True):
     return set_servo_bucket(down=down, wait=True)
     if not pca or not servo: 
-        print("[РЎР•Р Р’РћРџР РР’РћР”] РћС€РёР±РєР°: PCA9685 РёР»Рё Р±РёР±Р»РёРѕС‚РµРєР° adafruit_motor РЅРµ РЅР°Р№РґРµРЅС‹!")
+        print("[СЕРВОПРИВОД] Ошибка: PCA9685 или библиотека adafruit_motor не найдены!")
         return
         
-    # Р’СЂРµРјРµРЅРЅРѕ РїРµСЂРµРєР»СЋС‡Р°РµРј РІСЃСЋ РїР»Р°С‚Сѓ РЅР° 50 Р“С† РґР»СЏ СѓРїСЂР°РІР»РµРЅРёСЏ СЃРµСЂРІРѕРїСЂРёРІРѕРґРѕРј.
-    # РўР°Рє РєР°Рє РјРѕС‚РѕСЂС‹ СЃРµР№С‡Р°СЃ РѕСЃС‚Р°РЅРѕРІР»РµРЅС‹ (PWM=0), СЌС‚Рѕ Р±РµР·РѕРїР°СЃРЅРѕ.
+    # Временно переключаем всю плату на 50 Гц для управления сервоприводом.
+    # Так как моторы сейчас остановлены (PWM=0), это безопасно.
     pca.frequency = 50
     
     CHANNEL = 14
     servo_motor = servo.Servo(pca.channels[CHANNEL], min_pulse=500, max_pulse=2500)
     
-    state = "РћРџРЈРЎРљРђР®" if down else "РџРћР”РќРРњРђР®"
-    print(f"[РЎР•Р Р’РћРџР РР’РћР” - РљР°РЅР°Р» {CHANNEL}] {state} РєРѕРІС€! (Р§Р°СЃС‚РѕС‚Р° РїРµСЂРµРєР»СЋС‡РµРЅР° РЅР° 50 Р“С†)")
+    state = "ОПУСКАЮ" if down else "ПОДНИМАЮ"
+    print(f"[СЕРВОПРИВОД - Канал {CHANNEL}] {state} ковш! (Частота переключена на 50 Гц)")
     
-    # Р§РёС‚Р°РµРј РѕС‚РєР°Р»РёР±СЂРѕРІР°РЅРЅС‹Рµ СѓРіР»С‹ РёР· РєРѕРЅС„РёРіСѓСЂР°С†РёРё
+    # Читаем откалиброванные углы из конфигурации
     up_angle = global_config.get("servo_up_angle", 0)
     down_angle = global_config.get("servo_down_angle", 90)
     
-    # Р—РЅР°С‡РµРЅРёСЏ СѓРіР»РѕРІ Р±РµСЂРµРј РёР· С„Р°Р№Р»Р° РєРѕРЅС„РёРіСѓСЂР°С†РёРё!
+    # Значения углов берем из файла конфигурации!
     if down:
-        servo_motor.angle = down_angle  # РљРѕРІС€ РѕРїСѓС‰РµРЅ (РїРѕР»РѕР¶РµРЅРёРµ РґР»СЏ СЃР±РѕСЂР°)
+        servo_motor.angle = down_angle  # Ковш опущен (положение для сбора)
     else:
-        servo_motor.angle = up_angle    # РљРѕРІС€ РїРѕРґРЅСЏС‚ (РЅСѓР»РµРІРѕРµ/С‚СЂР°РЅСЃРїРѕСЂС‚РЅРѕРµ РїРѕР»РѕР¶РµРЅРёРµ)
+        servo_motor.angle = up_angle    # Ковш поднят (нулевое/транспортное положение)
         
-    # Р–РґРµРј РїРѕРєР° РєРѕРІС€ С„РёР·РёС‡РµСЃРєРё РѕРїСѓСЃС‚РёС‚СЃСЏ/РїРѕРґРЅРёРјРµС‚СЃСЏ
+    # Ждем пока ковш физически опустится/поднимется
     time.sleep(1.0)
     
-    # РћС‚РєР»СЋС‡Р°РµРј РЁРРњ СЃРёРіРЅР°Р» РЅР° СЃРµСЂРІРѕРїСЂРёРІРѕРґ, С‡С‚РѕР±С‹ РѕРЅ РЅРµ РґСЂРѕР¶Р°Р» Рё РЅРµ С‚СЂР°С‚РёР» С‚РѕРє
+    # Отключаем ШИМ сигнал на сервопривод, чтобы он не дрожал и не тратил ток
     pca.channels[CHANNEL].duty_cycle = 0
     
-    # Р’РѕР·РІСЂР°С‰Р°РµРј С‡Р°СЃС‚РѕС‚Сѓ РѕР±СЂР°С‚РЅРѕ РЅР° 1000 Р“С† РґР»СЏ РїСЂР°РІРёР»СЊРЅРѕР№ СЂР°Р±РѕС‚С‹ РјРѕС‚РѕСЂРѕРІ РєРѕР»РµСЃ
+    # Возвращаем частоту обратно на 1000 Гц для правильной работы моторов колес
     pca.frequency = 1000
 
 def _scale_speed_to_duty_cycle(speed):
@@ -573,8 +597,8 @@ def _get_bucket_motor_channels():
     ):
         if not bucket_channel_warning_shown:
             print(
-                f"[РљРћР’РЁ] РќРµР±РµР·РѕРїР°СЃРЅР°СЏ РєРѕРЅС„РёРіСѓСЂР°С†РёСЏ РєР°РЅР°Р»РѕРІ bucket motor: {fwd}/{rev}. "
-                "РћРЅРё РїРµСЂРµСЃРµРєР°СЋС‚СЃСЏ СЃ С…РѕРґРѕРІС‹РјРё РјРѕС‚РѕСЂР°РјРё, РїРѕСЌС‚РѕРјСѓ РјРѕС‚РѕСЂ РєРѕРІС€Р° РѕС‚РєР»СЋС‡РµРЅ РґРѕ РёСЃРїСЂР°РІР»РµРЅРёСЏ config.json."
+                f"[КОВШ] Небезопасная конфигурация каналов bucket motor: {fwd}/{rev}. "
+                "Они пересекаются с ходовыми моторами, поэтому мотор ковша отключен до исправления config.json."
             )
             bucket_channel_warning_shown = True
         return None, None
@@ -587,7 +611,7 @@ def legacy_init_bucket_arduino_unused(config):
         return True
 
     if not serial:
-        print("[ARDUINO] pyserial РЅРµ СѓСЃС‚Р°РЅРѕРІР»РµРЅ, СѓРїСЂР°РІР»РµРЅРёРµ СЃРµСЂРІРѕР№ РєРѕРІС€Р° С‡РµСЂРµР· Arduino РЅРµРґРѕСЃС‚СѓРїРЅРѕ.")
+        print("[ARDUINO] pyserial не установлен, управление сервой ковша через Arduino недоступно.")
         return False
 
     arduino_port = config.get("arduino_port", "/dev/ttyACM0")
@@ -608,10 +632,10 @@ def legacy_init_bucket_arduino_unused(config):
         bucket_arduino_running = True
         bucket_arduino_reader_thread = threading.Thread(target=_bucket_arduino_reader_loop, daemon=True)
         bucket_arduino_reader_thread.start()
-        print(f"[ARDUINO] РџРѕРґРєР»СЋС‡РµРЅ РєРѕРЅС‚СЂРѕР»Р»РµСЂ РєРѕРІС€Р° РЅР° {arduino_port} ({baudrate} Р±РѕРґ).")
+        print(f"[ARDUINO] Подключен контроллер ковша на {arduino_port} ({baudrate} бод).")
         return True
     except Exception as e:
-        print(f"[ARDUINO] РќРµ СѓРґР°Р»РѕСЃСЊ РїРѕРґРєР»СЋС‡РёС‚СЊСЃСЏ Рє Arduino РЅР° {arduino_port}: {e}")
+        print(f"[ARDUINO] Не удалось подключиться к Arduino на {arduino_port}: {e}")
         bucket_arduino = None
         bucket_arduino_running = False
         return False
@@ -629,7 +653,7 @@ def _bucket_arduino_reader_loop():
                 print(f"[ARDUINO] {line}")
         except Exception as e:
             if bucket_arduino_running:
-                print(f"[ARDUINO] РћС€РёР±РєР° С‡С‚РµРЅРёСЏ Serial: {e}")
+                print(f"[ARDUINO] Ошибка чтения Serial: {e}")
             time.sleep(0.2)
 
 def legacy_close_bucket_arduino_unused():
@@ -645,7 +669,7 @@ def legacy_close_bucket_arduino_unused():
 
 def legacy_send_bucket_arduino_command_unused(command):
     if not bucket_arduino:
-        print(f"[ARDUINO] РљРѕРјР°РЅРґР° '{command}' РїСЂРѕРїСѓС‰РµРЅР°: Arduino РЅРµ РїРѕРґРєР»СЋС‡РµРЅ.")
+        print(f"[ARDUINO] Команда '{command}' пропущена: Arduino не подключен.")
         return False
 
     try:
@@ -654,7 +678,7 @@ def legacy_send_bucket_arduino_command_unused(command):
             bucket_arduino.flush()
         return True
     except Exception as e:
-        print(f"[ARDUINO] РќРµ СѓРґР°Р»РѕСЃСЊ РѕС‚РїСЂР°РІРёС‚СЊ РєРѕРјР°РЅРґСѓ '{command}': {e}")
+        print(f"[ARDUINO] Не удалось отправить команду '{command}': {e}")
         return False
 
 def legacy_move_bucket_servo_to_angle_unused(target_angle, label, wait=True):
@@ -662,7 +686,7 @@ def legacy_move_bucket_servo_to_angle_unused(target_angle, label, wait=True):
     if not send_bucket_arduino_command(f"SERVO:{target_angle}"):
         return False
 
-    print(f"[РЎР•Р Р’РћРџР РР’РћР” - ARDUINO] {label} РєРѕРІС€ РґРѕ {target_angle}В°.")
+    print(f"[СЕРВОПРИВОД - ARDUINO] {label} ковш до {target_angle}°.")
     if wait:
         time.sleep(float(global_config.get("bucket_servo_move_sec", 0.8)))
     return True
@@ -671,7 +695,7 @@ def legacy_set_servo_bucket_via_arduino_unused(down=True, wait=True):
     up_angle = global_config.get("servo_up_angle", 0)
     down_angle = global_config.get("servo_down_angle", 90)
     target_angle = down_angle if down else up_angle
-    label = "РћРџРЈРЎРљРђР®" if down else "РџРћР”РќРРњРђР®"
+    label = "ОПУСКАЮ" if down else "ПОДНИМАЮ"
     return _move_bucket_servo_to_angle(target_angle, label, wait=wait)
 
 def is_bucket_servo_controller_ready():
@@ -802,7 +826,7 @@ def set_servo_bucket(down=True, wait=True):
 def set_bucket_motor(speed):
     global bucket_motor_current_speed
     if not pca and not init_pca_controllers(global_config):
-        print("[РљРћР’РЁ] PCA9685 РЅРµРґРѕСЃС‚СѓРїРЅР°, РјРѕС‚РѕСЂ РєРѕРІС€Р° РЅРµ СѓРїСЂР°РІР»СЏРµС‚СЃСЏ.")
+        print("[КОВШ] PCA9685 недоступна, мотор ковша не управляется.")
         return False
 
     fwd_channel, rev_channel = _get_bucket_motor_channels()
@@ -840,11 +864,11 @@ def legacy_run_bucket_collect_cycle_unused():
 
     try:
         if lower_before_collect:
-            print("[РљРћР’РЁ] РћРїСѓСЃРєР°СЋ РєРѕРІС€ РїРµСЂРµРґ Р·Р°С…РІР°С‚РѕРј РјСѓСЃРѕСЂР°.")
+            print("[КОВШ] Опускаю ковш перед захватом мусора.")
             set_servo_bucket(down=True, wait=True)
             time.sleep(lower_pause_sec)
 
-        print("[РљРћР’РЁ] РџРѕРґРЅРёРјР°СЋ РєРѕРІС€ Рё Р·Р°РїСѓСЃРєР°СЋ СЃС‚РµРЅРєСѓ РєРѕРІС€Р° РѕРґРЅРѕРІСЂРµРјРµРЅРЅРѕ.")
+        print("[КОВШ] Поднимаю ковш и запускаю стенку ковша одновременно.")
         set_bucket_motor(collect_speed)
         set_servo_bucket(down=False, wait=False)
         time.sleep(collect_duration_sec)
@@ -862,9 +886,9 @@ def handle_remote_servo_command(command):
         return
     try:
         angle = float(command)
-        _move_bucket_servo_to_angle(angle, "РЈРЎРўРђРќРђР’Р›РР’РђР®", wait=False)
+        _move_bucket_servo_to_angle(angle, "УСТАНАВЛИВАЮ", wait=False)
     except ValueError:
-        print(f"[REMOTE] РќРµРёР·РІРµСЃС‚РЅР°СЏ РєРѕРјР°РЅРґР° СЃРµСЂРІРѕРїСЂРёРІРѕРґСѓ: {command}")
+        print(f"[REMOTE] Неизвестная команда сервоприводу: {command}")
 
 def legacy_handle_remote_bucket_motor_pulse_unused(command):
     command = str(command).strip().upper()
@@ -879,7 +903,7 @@ def legacy_handle_remote_bucket_motor_pulse_unused(command):
     elif command in {"STOP", "0"}:
         set_bucket_motor(0)
     else:
-        print(f"[REMOTE] РќРµРёР·РІРµСЃС‚РЅР°СЏ РєРѕРјР°РЅРґР° РјРѕС‚РѕСЂСѓ РєРѕРІС€Р°: {command}")
+        print(f"[REMOTE] Неизвестная команда мотору ковша: {command}")
 
 def get_bucket_wall_position(wait_timeout_sec=1.0):
     deadline = time.time() + wait_timeout_sec
@@ -961,16 +985,16 @@ def ensure_bucket_wall_direction():
             pulse_bucket_motor(-speed, global_config.get("bucket_wall_detect_pulse_sec", 0.12))
             return bucket_wall_increase_direction_sign
 
-    print("[РЎРўР•РќРљРђ] РќРµ СѓРґР°Р»РѕСЃСЊ РѕРїСЂРµРґРµР»РёС‚СЊ РЅР°РїСЂР°РІР»РµРЅРёРµ РёР·РјРµРЅРµРЅРёСЏ РїРѕС‚РµРЅС†РёРѕРјРµС‚СЂР°. РџСЂРѕРІРµСЂСЊС‚Рµ РїРѕРґРєР»СЋС‡РµРЅРёРµ.")
+    print("[СТЕНКА] Не удалось определить направление изменения потенциометра. Проверьте подключение.")
     return None
 
-def move_bucket_wall_to_position(target_value, label="РЎС‚РµРЅРєР° РєРѕРІС€Р°", timeout_sec=None):
+def move_bucket_wall_to_position(target_value, label="Стенка ковша", timeout_sec=None):
     increase_direction = ensure_bucket_wall_direction()
     if increase_direction not in (-1, 1):
         return False
 
     if target_value is None:
-        print(f"[РЎРўР•РќРљРђ] Р¦РµР»РµРІРѕРµ РїРѕР»РѕР¶РµРЅРёРµ '{label}' РЅРµ Р·Р°РґР°РЅРѕ.")
+        print(f"[СТЕНКА] Целевое положение '{label}' не задано.")
         return False
 
     tolerance = int(global_config.get("bucket_wall_tolerance", 25))
@@ -983,13 +1007,13 @@ def move_bucket_wall_to_position(target_value, label="РЎС‚РµРЅРєР° 
     while time.time() < deadline:
         current_value = get_bucket_wall_position(wait_timeout_sec=0.3)
         if current_value is None:
-            print(f"[РЎРўР•РќРљРђ] РќРµС‚ РґР°РЅРЅС‹С… СЃ РїРѕС‚РµРЅС†РёРѕРјРµС‚СЂР° РґР»СЏ '{label}'.")
+            print(f"[СТЕНКА] Нет данных с потенциометра для '{label}'.")
             break
 
         error = int(target_value) - current_value
         if abs(error) <= tolerance:
             set_bucket_motor(0)
-            print(f"[РЎРўР•РќРљРђ] '{label}' РґРѕСЃС‚РёРіРЅСѓС‚Рѕ: {current_value}.")
+            print(f"[СТЕНКА] '{label}' достигнуто: {current_value}.")
             return True
 
         direction = increase_direction if error > 0 else -increase_direction
@@ -998,7 +1022,7 @@ def move_bucket_wall_to_position(target_value, label="РЎС‚РµРЅРєР° 
         time.sleep(0.05)
 
     set_bucket_motor(0)
-    print(f"[РЎРўР•РќРљРђ] РќРµ СѓРґР°Р»РѕСЃСЊ РґРѕРІРµСЃС‚Рё '{label}' РґРѕ С†РµР»Рё {target_value}. РџРѕСЃР»РµРґРЅРµРµ Р·РЅР°С‡РµРЅРёРµ: {get_bucket_wall_position(0.1)}.")
+    print(f"[СТЕНКА] Не удалось довести '{label}' до цели {target_value}. Последнее значение: {get_bucket_wall_position(0.1)}.")
     return False
 
 def run_bucket_wall_timed_test(duration_sec=None, speed=None):
@@ -1007,13 +1031,13 @@ def run_bucket_wall_timed_test(duration_sec=None, speed=None):
     )
     speed = abs(int(speed if speed is not None else global_config.get("bucket_wall_manual_speed", 4095)))
 
-    print(f"[Р РЋР СћР вЂўР СњР С™Р С’] Р СћР ВµРЎРѓРЎвЂљ: Р С—Р С•Р Т‘Р Р…Р С‘Р СР В°РЎР‹ РЎРѓР С•Р Р†Р С•Р С” Р Р…Р В°Р В·Р В°Р Т‘ Р Р…Р В° {duration_sec:.1f} РЎРѓР ВµР С”.")
+    print(f"[РЎРўР•РќРљРђ] РўРµСЃС‚: РїРѕРґРЅРёРјР°СЋ СЃРѕРІРѕРє РЅР°Р·Р°Рґ РЅР° {duration_sec:.1f} СЃРµРє.")
     before_up, after_up = pulse_bucket_motor(-speed, duration_sec)
     _remember_bucket_wall_direction(-speed, before_up, after_up)
 
     time.sleep(0.2)
 
-    print(f"[Р РЋР СћР вЂўР СњР С™Р С’] Р СћР ВµРЎРѓРЎвЂљ: Р С•Р С—РЎС“РЎРѓР С”Р В°РЎР‹ РЎРѓР С•Р Р†Р С•Р С” Р Р†Р С—Р ВµРЎР‚Р ВµР Т‘ Р Р…Р В° {duration_sec:.1f} РЎРѓР ВµР С”.")
+    print(f"[РЎРўР•РќРљРђ] РўРµСЃС‚: РѕРїСѓСЃРєР°СЋ СЃРѕРІРѕРє РІРїРµСЂРµРґ РЅР° {duration_sec:.1f} СЃРµРє.")
     before_down, after_down = pulse_bucket_motor(speed, duration_sec)
     _remember_bucket_wall_direction(speed, before_down, after_down)
 
@@ -1025,25 +1049,25 @@ def calibrate_bucket_wall(config):
     default_answer = "y" if search_position is None or lower_position is None else "n"
 
     answer = input(
-        f"\nРҐРѕС‚РёС‚Рµ РѕС‚РєР°Р»РёР±СЂРѕРІР°С‚СЊ СЃС‚РµРЅРєСѓ РєРѕРІС€Р° РїРѕ РїРѕС‚РµРЅС†РёРѕРјРµС‚СЂСѓ? (y/n, Enter={default_answer}): "
+        f"\nХотите откалибровать стенку ковша по потенциометру? (y/n, Enter={default_answer}): "
     ).strip().lower()
     if not answer:
         answer = default_answer
 
     if answer != "y":
         if search_position is None or lower_position is None:
-            print("[РЎРўР•РќРљРђ] РљР°Р»РёР±СЂРѕРІРєР° РѕР±СЏР·Р°С‚РµР»СЊРЅР°: РЅРµ Р·Р°РґР°РЅС‹ РїРѕРёСЃРєРѕРІРѕРµ Рё РЅРёР¶РЅРµРµ РїРѕР»РѕР¶РµРЅРёСЏ.")
+            print("[СТЕНКА] Калибровка обязательна: не заданы поисковое и нижнее положения.")
             return calibrate_bucket_wall(config)
         return True
 
-    print("\n=== РљРђР›РР‘Р РћР’РљРђ РЎРўР•РќРљР РљРћР’РЁРђ ===")
-    print("РљРѕРјР°РЅРґС‹:")
-    print("  j - РєРѕСЂРѕС‚РєРёР№ С€Р°Рі РјРѕС‚РѕСЂРѕРј РІ РѕРґРЅСѓ СЃС‚РѕСЂРѕРЅСѓ")
-    print("  k - РєРѕСЂРѕС‚РєРёР№ С€Р°Рі РјРѕС‚РѕСЂРѕРј РІ РґСЂСѓРіСѓСЋ СЃС‚РѕСЂРѕРЅСѓ")
-    print("  p - РїРѕРєР°Р·Р°С‚СЊ С‚РµРєСѓС‰РµРµ Р·РЅР°С‡РµРЅРёРµ РїРѕС‚РµРЅС†РёРѕРјРµС‚СЂР°")
-    print("  s - СЃРѕС…СЂР°РЅРёС‚СЊ С‚РµРєСѓС‰РµРµ Р·РЅР°С‡РµРЅРёРµ РєР°Рє РџРћРРЎРљРћР’РћР• РїРѕР»РѕР¶РµРЅРёРµ")
-    print("  l - СЃРѕС…СЂР°РЅРёС‚СЊ С‚РµРєСѓС‰РµРµ Р·РЅР°С‡РµРЅРёРµ РєР°Рє РќРР–РќР•Р• РїРѕР»РѕР¶РµРЅРёРµ")
-    print("  q - Р·Р°РІРµСЂС€РёС‚СЊ РєР°Р»РёР±СЂРѕРІРєСѓ")
+    print("\n=== КАЛИБРОВКА СТЕНКИ КОВША ===")
+    print("Команды:")
+    print("  j - короткий шаг мотором в одну сторону")
+    print("  k - короткий шаг мотором в другую сторону")
+    print("  p - показать текущее значение потенциометра")
+    print("  s - сохранить текущее значение как ПОИСКОВОЕ положение")
+    print("  l - сохранить текущее значение как НИЖНЕЕ положение")
+    print("  q - завершить калибровку")
 
     if int(config.get("bucket_wall_manual_speed", 4095)) != 4095:
         config["bucket_wall_manual_speed"] = 4095
@@ -1058,8 +1082,8 @@ def calibrate_bucket_wall(config):
 
     while True:
         current_value = get_bucket_wall_position(wait_timeout_sec=1.0)
-        print(f"\n[РЎРўР•РќРљРђ] РўРµРєСѓС‰РµРµ Р·РЅР°С‡РµРЅРёРµ РїРѕС‚РµРЅС†РёРѕРјРµС‚СЂР°: {current_value}")
-        command = input("РљР°Р»РёР±СЂРѕРІРєР° СЃС‚РµРЅРєРё > ").strip().lower()
+        print(f"\n[СТЕНКА] Текущее значение потенциометра: {current_value}")
+        command = input("Калибровка стенки > ").strip().lower()
 
         if command == "j":
             before, after = pulse_bucket_motor(-manual_speed, manual_pulse_sec)
@@ -1073,36 +1097,36 @@ def calibrate_bucket_wall(config):
             continue
         elif command == "s":
             if current_value is None:
-                print("[РЎРўР•РќРљРђ] РќРµС‚ СЃРёРіРЅР°Р»Р° РїРѕС‚РµРЅС†РёРѕРјРµС‚СЂР°.")
+                print("[СТЕНКА] Нет сигнала потенциометра.")
                 continue
             search_position = current_value
             config["bucket_wall_search_pot"] = search_position
             save_config(config)
-            print(f"[РЎРўР•РќРљРђ] РџРѕРёСЃРєРѕРІРѕРµ РїРѕР»РѕР¶РµРЅРёРµ СЃРѕС…СЂР°РЅРµРЅРѕ: {search_position}.")
+            print(f"[СТЕНКА] Поисковое положение сохранено: {search_position}.")
         elif command == "l":
             if current_value is None:
-                print("[РЎРўР•РќРљРђ] РќРµС‚ СЃРёРіРЅР°Р»Р° РїРѕС‚РµРЅС†РёРѕРјРµС‚СЂР°.")
+                print("[СТЕНКА] Нет сигнала потенциометра.")
                 continue
             lower_position = current_value
             config["bucket_wall_lower_pot"] = lower_position
             save_config(config)
-            print(f"[РЎРўР•РќРљРђ] РќРёР¶РЅРµРµ РїРѕР»РѕР¶РµРЅРёРµ СЃРѕС…СЂР°РЅРµРЅРѕ: {lower_position}.")
+            print(f"[СТЕНКА] Нижнее положение сохранено: {lower_position}.")
         elif command == "q":
             if search_position is None or lower_position is None:
-                print("[РЎРўР•РќРљРђ] РќСѓР¶РЅРѕ СЃРѕС…СЂР°РЅРёС‚СЊ Рё РїРѕРёСЃРєРѕРІРѕРµ, Рё РЅРёР¶РЅРµРµ РїРѕР»РѕР¶РµРЅРёРµ.")
+                print("[СТЕНКА] Нужно сохранить и поисковое, и нижнее положение.")
                 continue
             break
         else:
-            print("РќРµРёР·РІРµСЃС‚РЅР°СЏ РєРѕРјР°РЅРґР°.")
+            print("Неизвестная команда.")
 
     ensure_bucket_wall_direction()
     return True
 
 def move_bucket_wall_to_search_position():
-    return move_bucket_wall_to_position(global_config.get("bucket_wall_search_pot"), "РїРѕРёСЃРєРѕРІРѕРµ РїРѕР»РѕР¶РµРЅРёРµ СЃС‚РµРЅРєРё")
+    return move_bucket_wall_to_position(global_config.get("bucket_wall_search_pot"), "поисковое положение стенки")
 
 def move_bucket_wall_to_lower_position():
-    return move_bucket_wall_to_position(global_config.get("bucket_wall_lower_pot"), "РЅРёР¶РЅРµРµ РїРѕР»РѕР¶РµРЅРёРµ СЃС‚РµРЅРєРё")
+    return move_bucket_wall_to_position(global_config.get("bucket_wall_lower_pot"), "нижнее положение стенки")
 
 def run_bucket_collect_cycle():
     servo_lower_pause_sec = float(global_config.get("bucket_servo_lower_pause_sec", 0.2))
@@ -1111,15 +1135,15 @@ def run_bucket_collect_cycle():
     settle_after_sec = float(global_config.get("bucket_collect_settle_sec", 0.2))
 
     try:
-        print("[РљРћР’РЁ] РћРїСѓСЃРєР°СЋ СЃРµСЂРІСѓ РєРѕРІС€Р°.")
+        print("[КОВШ] Опускаю серву ковша.")
         set_servo_bucket(down=True, wait=True)
         time.sleep(servo_lower_pause_sec)
 
-        print("[РљРћР’РЁ] РћРїСѓСЃРєР°СЋ СЃС‚РµРЅРєСѓ РєРѕРІС€Р° Рє РјСѓСЃРѕСЂСѓ.")
+        print("[КОВШ] Опускаю стенку ковша к мусору.")
         move_bucket_wall_to_lower_position()
         time.sleep(wall_lower_pause_sec)
 
-        print("[РљРћР’РЁ] РџРѕРґРЅРёРјР°СЋ СЃС‚РµРЅРєСѓ Рё СЃРµСЂРІСѓ РІРјРµСЃС‚Рµ, С‡С‚РѕР±С‹ Р·Р°РєРёРЅСѓС‚СЊ РјСѓСЃРѕСЂ РЅР°Р·Р°Рґ.")
+        print("[КОВШ] Поднимаю стенку и серву вместе, чтобы закинуть мусор назад.")
         servo_thread = threading.Thread(target=set_servo_bucket, kwargs={"down": False, "wait": True}, daemon=True)
         servo_thread.start()
         move_bucket_wall_to_search_position()
@@ -1152,7 +1176,7 @@ def legacy_handle_remote_bucket_motor_position_unused(command):
     elif command in {"STOP", "0"}:
         set_bucket_motor(0)
     else:
-        print(f"[REMOTE] РќРµРёР·РІРµСЃС‚РЅР°СЏ РєРѕРјР°РЅРґР° РјРѕС‚РѕСЂСѓ РєРѕРІС€Р°: {command}")
+        print(f"[REMOTE] Неизвестная команда мотору ковша: {command}")
 
 bucket_wall_position_state = "unknown"
 
@@ -1628,16 +1652,16 @@ def slam_thread_function(driver, show_map):
     slam = OnlineFastSlam(show_map=show_map)
     last_time = time.time()
     
-    print("SLAM РїРѕС‚РѕРє Р·Р°РїСѓС‰РµРЅ.")
+    print("SLAM поток запущен.")
     while driver.running:
         current_time = time.time()
         dt = current_time - last_time
         last_time = current_time
         
-        # РџРѕР»СѓС‡Р°РµРј РґР°РЅРЅС‹Рµ СЃ Р»РёРґР°СЂР°
+        # Получаем данные с лидара
         scan = driver.get_latest_scan()
         
-        # Р Р°СЃС‡РµС‚ РїСЃРµРІРґРѕ-РѕРґРѕРјРµС‚СЂРёРё
+        # Расчет псевдо-одометрии
         with movement_lock:
             mode = current_mode
             speed = current_speed
@@ -1647,34 +1671,34 @@ def slam_thread_function(driver, show_map):
         dtheta = 0.0
         
         if mode != 0 and speed > 0:
-            # Р Р°СЃС‡РµС‚ Р»РёРЅРµР№РЅРѕР№ СЃРєРѕСЂРѕСЃС‚Рё (Рј/СЃ)
-            # speed / 4095.0 - РґРѕР»СЏ РѕС‚ РјР°РєСЃРёРјР°Р»СЊРЅРѕР№ СЃРєРѕСЂРѕСЃС‚Рё
+            # Расчет линейной скорости (м/с)
+            # speed / 4095.0 - доля от максимальной скорости
             rpm = MAX_WHEEL_RPM * (speed / 4095.0)
-            rps = rpm / 60.0 # РѕР±РѕСЂРѕС‚РѕРІ РІ СЃРµРєСѓРЅРґСѓ
+            rps = rpm / 60.0 # оборотов в секунду
             linear_velocity = WHEEL_CIRCUMFERENCE * rps
             
-            if mode == 1: # Р’РїРµСЂРµРґ
+            if mode == 1: # Вперед
                 dx = linear_velocity * dt
-            elif mode == 2: # РќР°Р·Р°Рґ
+            elif mode == 2: # Назад
                 dx = -linear_velocity * dt
-            elif mode == 3: # Р’Р»РµРІРѕ (СЂР°Р·РІРѕСЂРѕС‚ РЅР° РјРµСЃС‚Рµ)
-                # РЈРіР»РѕРІР°СЏ СЃРєРѕСЂРѕСЃС‚СЊ = (V_right - V_left) / TRACK_WIDTH
-                # РџСЂР°РІС‹Рµ РІРїРµСЂРµРґ (V), Р»РµРІС‹Рµ РЅР°Р·Р°Рґ (-V)
+            elif mode == 3: # Влево (разворот на месте)
+                # Угловая скорость = (V_right - V_left) / TRACK_WIDTH
+                # Правые вперед (V), левые назад (-V)
                 v_right = linear_velocity
                 v_left = -linear_velocity
                 angular_velocity = (v_right - v_left) / ROBOT_TRACK_WIDTH
                 dtheta = angular_velocity * dt
-            elif mode == 4: # Р’РїСЂР°РІРѕ
-                # Р›РµРІС‹Рµ РІРїРµСЂРµРґ (V), РїСЂР°РІС‹Рµ РЅР°Р·Р°Рґ (-V)
+            elif mode == 4: # Вправо
+                # Левые вперед (V), правые назад (-V)
                 v_right = -linear_velocity
                 v_left = linear_velocity
                 angular_velocity = (v_right - v_left) / ROBOT_TRACK_WIDTH
                 dtheta = angular_velocity * dt
 
-        # РћР±РЅРѕРІР»СЏРµРј SLAM (РїРµСЂРµРґР°РµРј С‚Р°РєР¶Рµ СЃРјРµС‰РµРЅРёРµ Р»РёРґР°СЂР° РїРѕ X Рё Y)
+        # Обновляем SLAM (передаем также смещение лидара по X и Y)
         slam.process_scan(scan, dx, dy, dtheta, LIDAR_OFFSET_X, LIDAR_OFFSET_Y)
         
-        # РЎРїРёРј С‡С‚РѕР±С‹ SLAM СЂР°Р±РѕС‚Р°Р» РїСЂРёРјРµСЂРЅРѕ 5-10 Р“С†
+        # Спим чтобы SLAM работал примерно 5-10 Гц
         current_pose = _extract_best_slam_pose(slam)
         with slam_state_lock:
             latest_slam_pose = current_pose
@@ -1685,8 +1709,8 @@ def slam_thread_function(driver, show_map):
 
 def get_lidar_distance(scan, target_angle_deg, cone_half_angle=5):
     """
-    РС‰РµС‚ РјРёРЅРёРјР°Р»СЊРЅСѓСЋ РґРёСЃС‚Р°РЅС†РёСЋ РІ Р·Р°РґР°РЅРЅРѕРј СЃРµРєС‚РѕСЂРµ (target_angle_deg В± cone_half_angle).
-    Р’РѕР·РІСЂР°С‰Р°РµС‚ РґРёСЃС‚Р°РЅС†РёСЋ РІ РјРµС‚СЂР°С… РёР»Рё 999.0 РµСЃР»Рё РЅРµС‚ РґР°РЅРЅС‹С….
+    Ищет минимальную дистанцию в заданном секторе (target_angle_deg ± cone_half_angle).
+    Возвращает дистанцию в метрах или 999.0 если нет данных.
     """
     min_dist = 999.0
     for angle_deg in range(360):
@@ -1701,10 +1725,10 @@ def get_lidar_distance(scan, target_angle_deg, cone_half_angle=5):
                 min_dist = r
     return min_dist
 
-def get_clearance(scan, target_angle_deg, robot_half_width=0.42): # РЈРІРµР»РёС‡РёР»Рё Р·Р°Р·РѕСЂ СЃ Р±РѕРєРѕРІ РµС‰Рµ РЅР° 2СЃРј
+def get_clearance(scan, target_angle_deg, robot_half_width=0.42): # Увеличили зазор с боков еще на 2см
     """
-    Р’С‹С‡РёСЃР»СЏРµС‚ СЃРІРѕР±РѕРґРЅСѓСЋ РґРёСЃС‚Р°РЅС†РёСЋ РІ РЅР°РїСЂР°РІР»РµРЅРёРё target_angle_deg,
-    СѓС‡РёС‚С‹РІР°СЏ С€РёСЂРёРЅСѓ СЂРѕР±РѕС‚Р° (robot_half_width).
+    Вычисляет свободную дистанцию в направлении target_angle_deg,
+    учитывая ширину робота (robot_half_width).
     """
     min_clearance = 8.0
     for angle_deg in range(360):
@@ -1718,7 +1742,7 @@ def get_clearance(scan, target_angle_deg, robot_half_width=0.42): # РЈРІРµ
         y_offset = abs(r * math.sin(rel_rad))
         x_offset = r * math.cos(rel_rad)
         
-        # Р•СЃР»Рё С‚РѕС‡РєР° РЅР°С…РѕРґРёС‚СЃСЏ "РІРїРµСЂРµРґРё" РЅР° СЌС‚РѕРј Р»СѓС‡Рµ Рё РІ РїСЂРµРґРµР»Р°С… С€РёСЂРёРЅС‹ СЂРѕР±РѕС‚Р°
+        # Если точка находится "впереди" на этом луче и в пределах ширины робота
         if x_offset > 0 and y_offset < robot_half_width:
             if x_offset < min_clearance:
                 min_clearance = x_offset
@@ -1728,54 +1752,54 @@ def calibrate_motors(config):
     global MAX_WHEEL_RPM
     if "MAX_WHEEL_RPM" in config:
         MAX_WHEEL_RPM = config["MAX_WHEEL_RPM"]
-        print(f"\n[РљРѕРЅС„РёРі] Р—Р°РіСЂСѓР¶РµРЅ MAX_WHEEL_RPM = {MAX_WHEEL_RPM:.1f}")
+        print(f"\n[Конфиг] Загружен MAX_WHEEL_RPM = {MAX_WHEEL_RPM:.1f}")
         
-    print("\n=== РљРђР›РР‘Р РћР’РљРђ РњРћРўРћР РћР’ ===")
-    ans = input("РҐРѕС‚РёС‚Рµ РІС‹РїРѕР»РЅРёС‚СЊ РєР°Р»РёР±СЂРѕРІРєСѓ РјРѕС‚РѕСЂРѕРІ РґР»СЏ С‚РѕС‡РЅРѕР№ РѕРґРѕРјРµС‚СЂРёРё? (y/n): ").strip().lower()
+    print("\n=== КАЛИБРОВКА МОТОРОВ ===")
+    ans = input("Хотите выполнить калибровку моторов для точной одометрии? (y/n): ").strip().lower()
     if ans != 'y':
-        print(f"РљР°Р»РёР±СЂРѕРІРєР° РїСЂРѕРїСѓС‰РµРЅР°. РСЃРїРѕР»СЊР·СѓРµС‚СЃСЏ MAX_WHEEL_RPM: {MAX_WHEEL_RPM}")
+        print(f"Калибровка пропущена. Используется MAX_WHEEL_RPM: {MAX_WHEEL_RPM}")
         return
 
-    print("\nР’РќРРњРђРќРР•: РџРѕРґРЅРёРјРёС‚Рµ СЂРѕР±РѕС‚Р° РЅР°Рґ Р·РµРјР»РµР№ (РїРѕСЃС‚Р°РІСЊС‚Рµ РЅР° РїРѕРґСЃС‚Р°РІРєСѓ), С‡С‚РѕР±С‹ РєРѕР»РµСЃР° РєСЂСѓС‚РёР»РёСЃСЊ РІ РІРѕР·РґСѓС…Рµ!")
-    input("РќР°Р¶РјРёС‚Рµ ENTER, РєРѕРіРґР° Р±СѓРґРµС‚Рµ РіРѕС‚РѕРІС‹ РЅР°С‡Р°С‚СЊ РєР°Р»РёР±СЂРѕРІРєСѓ...")
+    print("\nВНИМАНИЕ: Поднимите робота над землей (поставьте на подставку), чтобы колеса крутились в воздухе!")
+    input("Нажмите ENTER, когда будете готовы начать калибровку...")
     
     test_speed = 2000
-    test_duration = 5.0 # РЎРµРєСѓРЅРґС‹
+    test_duration = 5.0 # Секунды
     
-    print(f"\nР—Р°РїСѓСЃРє РјРѕС‚РѕСЂРѕРІ РІРїРµСЂРµРґ СЃРѕ СЃРєРѕСЂРѕСЃС‚СЊСЋ {test_speed} РЅР° {test_duration} СЃРµРєСѓРЅРґ...")
-    print("Р’РќРРњРђРўР•Р›Р¬РќРћ РЎР§РРўРђР™РўР• РћР‘РћР РћРўР« РљРћР›Р•РЎРђ (РјРѕР¶РЅРѕ СЃС‡РёС‚Р°С‚СЊ РѕР±РѕСЂРѕС‚С‹ РѕРґРЅРѕРіРѕ Р»СЋР±РѕРіРѕ РєРѕР»РµСЃР°).")
-    time.sleep(1) # РќРµР±РѕР»СЊС€Р°СЏ РїР°СѓР·Р° РїРµСЂРµРґ СЃС‚Р°СЂС‚РѕРј
+    print(f"\nЗапуск моторов вперед со скоростью {test_speed} на {test_duration} секунд...")
+    print("ВНИМАТЕЛЬНО СЧИТАЙТЕ ОБОРОТЫ КОЛЕСА (можно считать обороты одного любого колеса).")
+    time.sleep(1) # Небольшая пауза перед стартом
     
     set_motors(test_speed, 0, test_speed, 0)
     time.sleep(test_duration)
     stop_all()
     
-    print("\nРњРѕС‚РѕСЂС‹ РѕСЃС‚Р°РЅРѕРІР»РµРЅС‹.")
+    print("\nМоторы остановлены.")
     while True:
         try:
-            rotations_str = input("РЎРєРѕР»СЊРєРѕ РїРѕР»РЅС‹С… (Рё РґСЂРѕР±РЅС‹С…, С‡РµСЂРµР· С‚РѕС‡РєСѓ) РѕР±РѕСЂРѕС‚РѕРІ СЃРґРµР»Р°Р»Рѕ РєРѕР»РµСЃРѕ? (РЅР°РїСЂРёРјРµСЂ, 7.5): ").strip()
+            rotations_str = input("Сколько полных (и дробных, через точку) оборотов сделало колесо? (например, 7.5): ").strip()
             if not rotations_str: continue
             rotations = float(rotations_str)
             break
         except ValueError:
-            print("РћС€РёР±РєР°: РІРІРµРґРёС‚Рµ С‡РёСЃР»Рѕ!")
+            print("Ошибка: введите число!")
             
-    # Р Р°СЃС‡РµС‚ RPM РґР»СЏ С‚РµСЃС‚РѕРІРѕР№ СЃРєРѕСЂРѕСЃС‚Рё
+    # Расчет RPM для тестовой скорости
     test_rpm = (rotations / test_duration) * 60.0
-    # РџСЂРѕРїРѕСЂС†РёРѕРЅР°Р»СЊРЅС‹Р№ СЂР°СЃС‡РµС‚ РґР»СЏ РјР°РєСЃРёРјР°Р»СЊРЅРѕР№ СЃРєРѕСЂРѕСЃС‚Рё (4095)
+    # Пропорциональный расчет для максимальной скорости (4095)
     MAX_WHEEL_RPM = test_rpm * (4095.0 / float(test_speed))
     
-    print(f"-> РЎРєРѕСЂРѕСЃС‚СЊ РІСЂР°С‰РµРЅРёСЏ РїСЂРё PWM={test_speed} СЃРѕСЃС‚Р°РІРёР»Р°: {test_rpm:.1f} RPM")
-    print(f"-> Р Р°СЃС‡РµС‚РЅС‹Р№ MAX_WHEEL_RPM (РїСЂРё PWM=4095) СѓСЃС‚Р°РЅРѕРІР»РµРЅ РЅР°: {MAX_WHEEL_RPM:.1f} RPM")
+    print(f"-> Скорость вращения при PWM={test_speed} составила: {test_rpm:.1f} RPM")
+    print(f"-> Расчетный MAX_WHEEL_RPM (при PWM=4095) установлен на: {MAX_WHEEL_RPM:.1f} RPM")
     
     config["MAX_WHEEL_RPM"] = MAX_WHEEL_RPM
     save_config(config)
-    print("РљР°Р»РёР±СЂРѕРІРєР° СѓСЃРїРµС€РЅРѕ Р·Р°РІРµСЂС€РµРЅР° Рё СЃРѕС…СЂР°РЅРµРЅР° РІ config.json!\n")
+    print("Калибровка успешно завершена и сохранена в config.json!\n")
 
 
 def autonomous_loop(driver, speed, detector=None):
-    print("\n=== Р’РќРРњРђРќРР•: Р’РљР›Р®Р§Р•Рќ РЈРњРќР«Р™ РђР’РўРћРџРР›РћРў ===")
-    print("Р РѕР±РѕС‚ Р±СѓРґРµС‚ РёСЃСЃР»РµРґРѕРІР°С‚СЊ РјРµСЃС‚РЅРѕСЃС‚СЊ, СѓС‡РёС‚С‹РІР°СЏ СЃРІРѕРё РіР°Р±Р°СЂРёС‚С‹!")
+    print("\n=== ВНИМАНИЕ: ВКЛЮЧЕН УМНЫЙ АВТОПИЛОТ ===")
+    print("Робот будет исследовать местность, учитывая свои габариты!")
     time.sleep(2) 
     
     global current_mode, current_speed
@@ -1784,11 +1808,11 @@ def autonomous_loop(driver, speed, detector=None):
     active_trash_angle = 0.0
     completed_trash_targets = {}
     
-    SAFE_DIST_FRONT = 0.67 # РЈРІРµР»РёС‡РёР»Рё РґРёСЃС‚Р°РЅС†РёСЋ РѕСЃС‚Р°РЅРѕРІРєРё РїРµСЂРµРґ СЃС‚РµРЅРѕР№ РµС‰Рµ РЅР° 2СЃРј
+    SAFE_DIST_FRONT = 0.67 # Увеличили дистанцию остановки перед стеной еще на 2см
     
     try:
         while driver.running:
-            # --- Р›РћР“РРљРђ РЎР‘РћР Рђ РњРЈРЎРћР Рђ (YOLO) ---
+            # --- ЛОГИКА СБОРА МУСОРА (YOLO) ---
             scan = driver.get_latest_scan()
             ignored_target_ids = _cleanup_completed_trash_targets(
                 completed_trash_targets
@@ -1809,7 +1833,7 @@ def autonomous_loop(driver, speed, detector=None):
                 and (not route_enabled or route_within_corridor)
                 and state not in ["TRASH_APPROACH", "TRASH_COLLECT"]
             ):
-                print(f"[РђР’РўРћРџРР›РћРў] РњРЈРЎРћР  РћР‘РќРђР РЈР–Р•Рќ (РЈРіРѕР»: {active_trash_angle:.1f})! РќР°С‡РёРЅР°СЋ СЃР±Р»РёР¶РµРЅРёРµ.")
+                print(f"[АВТОПИЛОТ] МУСОР ОБНАРУЖЕН (Угол: {active_trash_angle:.1f})! Начинаю сближение.")
                 active_trash_target_id = active_target.get("id")
                 active_trash_angle = float(active_target.get("angle", 0.0))
                 state = "TRASH_APPROACH"
@@ -1853,36 +1877,36 @@ def autonomous_loop(driver, speed, detector=None):
                 active_trash_angle = float(target.get("angle", 0.0))
                 dist = get_lidar_distance(scan, active_trash_angle)
                 target_in_zone = bool(target.get("in_collection_zone", False))
-                print(f"[РђР’РўРћРџРР›РћРў] РЎР±Р»РёР¶РµРЅРёРµ... Р”РёСЃС‚Р°РЅС†РёСЏ РїРѕ Р»РёРґР°СЂСѓ: {dist:.2f}Рј, РЈРіРѕР»: {active_trash_angle:.1f}В°")
+                print(f"[АВТОПИЛОТ] Сближение... Дистанция по лидару: {dist:.2f}м, Угол: {active_trash_angle:.1f}°")
                 
-                # Р•СЃР»Рё РјСѓСЃРѕСЂ СЃР»РёС€РєРѕРј Р±Р»РёР·РєРѕ РёР»Рё РїРѕС‚РµСЂСЏРЅ РёР· РІРёРґСѓ РІР±Р»РёР·Рё (СЃР»РµРїР°СЏ Р·РѕРЅР°)
+                # Если мусор слишком близко или потерян из виду вблизи (слепая зона)
                 if target_in_zone and dist < 0.40:
-                    print("[РђР’РўРћРџРР›РћРў] РњСѓСЃРѕСЂ РІ Р·РѕРЅРµ Р·Р°С…РІР°С‚Р°!")
+                    print("[АВТОПИЛОТ] Мусор в зоне захвата!")
                     state = "TRASH_COLLECT"
                 elif dist < 0.25:
                     print("[AUTO] Trash is very close, switching to blind collect.")
                     state = "TRASH_COLLECT"
                 elif dist >= 0.4 and not target_in_zone:
-                    print("[РђР’РўРћРџРР›РћРў] Р›РѕР¶РЅРѕРµ СЃСЂР°Р±Р°С‚С‹РІР°РЅРёРµ РёР»Рё РјСѓСЃРѕСЂ СѓС‚РµСЂСЏРЅ РІРґР°Р»Рё. Р’РѕР·РІСЂР°С‚.")
+                    print("[АВТОПИЛОТ] Ложное срабатывание или мусор утерян вдали. Возврат.")
                     state = "FORWARD"
                 else:
-                    # РџРѕРґСЂСѓР»РёРІР°РЅРёРµ (РёСЃРїРѕР»СЊР·СѓРµРј 50% СЃРєРѕСЂРѕСЃС‚Рё РґР»СЏ РїР»Р°РІРЅРѕСЃС‚Рё)
+                    # Подруливание (используем 50% скорости для плавности)
                     if active_trash_angle > 10:
-                        set_motors(speed//2, 0, 0, speed//2) # Р’РїСЂР°РІРѕ
+                        set_motors(speed//2, 0, 0, speed//2) # Вправо
                     elif active_trash_angle < -10:
-                        set_motors(0, speed//2, speed//2, 0) # Р’Р»РµРІРѕ
+                        set_motors(0, speed//2, speed//2, 0) # Влево
                     else:
-                        set_motors(speed//2, 0, speed//2, 0) # РџСЂСЏРјРѕ
+                        set_motors(speed//2, 0, speed//2, 0) # Прямо
                 time.sleep(0.1)
                 continue
                 
             elif state == "TRASH_COLLECT":
                 collected_target_id = active_trash_target_id
                 stop_all()
-                time.sleep(0.5) # Р”Р°РµРј РјРѕС‚РѕСЂР°Рј РїРѕР»РЅРѕСЃС‚СЊСЋ РѕСЃС‚Р°РЅРѕРІРёС‚СЊСЃСЏ РїРµСЂРµРґ СЃРјРµРЅРѕР№ С‡Р°СЃС‚РѕС‚С‹
-                print("[РђР’РўРћРџРР›РћРў] Р—Р°РїСѓСЃРєР°СЋ РєРѕРІС€!")
+                time.sleep(0.5) # Даем моторам полностью остановиться перед сменой частоты
+                print("[АВТОПИЛОТ] Запускаю ковш!")
                 run_bucket_collect_cycle()
-                print("[РђР’РўРћРџРР›РћРў] РњСѓСЃРѕСЂ СЃРѕР±СЂР°РЅ! Р’РѕР·РІСЂР°С‚ Рє РёСЃСЃР»РµРґРѕРІР°РЅРёСЋ.")
+                print("[АВТОПИЛОТ] Мусор собран! Возврат к исследованию.")
                 _remember_completed_trash_target(
                     completed_trash_targets,
                     collected_target_id,
@@ -1910,7 +1934,7 @@ def autonomous_loop(driver, speed, detector=None):
                     state = "TRASH_APPROACH"
                 continue
 
-            # --- Р›РћР“РРљРђ РРЎРЎР›Р•Р”РћР’РђРўР•Р›РЇ РЎ Р›РР”РђР РћРњ ---
+            # --- ЛОГИКА ИССЛЕДОВАТЕЛЯ С ЛИДАРОМ ---
             
             clearance_front = get_clearance(scan, 0)
             
@@ -1919,28 +1943,28 @@ def autonomous_loop(driver, speed, detector=None):
                     stop_all()
                     time.sleep(0.2)
                     
-                    # РС‰РµРј Р»СѓС‡С€РµРµ РЅР°РїСЂР°РІР»РµРЅРёРµ (С€Р°Рі 15 РіСЂР°РґСѓСЃРѕРІ)
+                    # Ищем лучшее направление (шаг 15 градусов)
                     best_angle = 0
                     max_clear = 0.0
                     
                     for ang in range(-180, 180, 15):
-                        if abs(ang) < 30: continue # РџСЂСЏРјРѕ Рё С‚Р°Рє Р·Р°Р±Р»РѕРєРёСЂРѕРІР°РЅРѕ
+                        if abs(ang) < 30: continue # Прямо и так заблокировано
                         c = get_clearance(scan, ang)
                         if c > max_clear:
                             max_clear = c
                             best_angle = ang
                             
-                    print(f"[РђР’РўРћРџРР›РћРў] РџСЂРµРїСЏС‚СЃС‚РІРёРµ! Р›СѓС‡С€РёР№ РєРѕСЂРёРґРѕСЂ РЅР° {best_angle}В° (СЃРІРѕР±РѕРґРЅРѕ {max_clear:.2f}Рј)")
+                    print(f"[АВТОПИЛОТ] Препятствие! Лучший коридор на {best_angle}° (свободно {max_clear:.2f}м)")
                     
                     if max_clear < SAFE_DIST_FRONT:
                         state = "REVERSE"
-                        print("[РђР’РўРћРџРР›РћРў] РўСѓРїРёРє! Р’РєР»СЋС‡Р°СЋ Р·Р°РґРЅРёР№ С…РѕРґ.")
+                        print("[АВТОПИЛОТ] Тупик! Включаю задний ход.")
                     elif best_angle < 0:
                         state = "TURN_RIGHT"
                     else:
                         state = "TURN_LEFT"
                 else:
-                    # Р•РґРµРј РїСЂСЏРјРѕ
+                    # Едем прямо
                     if route_source_mode == "gps" and route_enabled and not route_within_corridor:
                         stop_all()
                         time.sleep(0.1)
@@ -2001,34 +2025,34 @@ def autonomous_loop(driver, speed, detector=None):
                 if min_back < 0.4 or clearance_front > 0.8:
                     stop_all()
                     time.sleep(0.2)
-                    state = "TURN_LEFT" # РЎР»СѓС‡Р°Р№РЅС‹Р№ РІС‹Р±РѕСЂ РґР»СЏ РІС‹С…РѕРґР° РёР· СѓРіР»Р°
+                    state = "TURN_LEFT" # Случайный выбор для выхода из угла
                 
             time.sleep(0.1) 
             
     except KeyboardInterrupt:
-        print("\nРђРІС‚РѕРїРёР»РѕС‚ РїСЂРµСЂРІР°РЅ РїРѕР»СЊР·РѕРІР°С‚РµР»РµРј!")
+        print("\nАвтопилот прерван пользователем!")
     finally:
         stop_all()
 
 def legacy_main_unused():
-    print("=== РЎРёСЃС‚РµРјР° СѓРїСЂР°РІР»РµРЅРёСЏ + FastSLAM + YOLO ===")
+    print("=== Система управления + FastSLAM + YOLO ===")
     
-    # РЎРёРЅС…СЂРѕРЅРёР·РёСЂСѓРµРј Р»РѕРєР°Р»СЊРЅС‹Р№ Рё РіР»РѕР±Р°Р»СЊРЅС‹Р№ РєРѕРЅС„РёРіРё
+    # Синхронизируем локальный и глобальный конфиги
     config = global_config
     """Legacy prompt removed: Arduino port must be asked separately from lidar.
-        f"Р’РІРµРґРёС‚Рµ РїРѕСЂС‚ Arduino РєРѕРІС€Р° (Enter РґР»СЏ {config.get('arduino_port', '/dev/ttyACM0')}): "
+        f"Введите порт Arduino ковша (Enter для {config.get('arduino_port', '/dev/ttyACM0')}): "
     ).strip()
     if lidar_port:
         config["lidar_port"] = lidar_port
     """
-    # Arduino РєРѕРІС€Р° РёРЅРёС†РёР°Р»РёР·РёСЂСѓРµРј РїРѕСЃР»Рµ РѕС‚РґРµР»СЊРЅРѕРіРѕ СЏРІРЅРѕРіРѕ Р·Р°РїСЂРѕСЃР° РїРѕСЂС‚Р° РЅРёР¶Рµ.
+    # Arduino ковша инициализируем после отдельного явного запроса порта ниже.
     
-    # РџСЂРё Р·Р°РїСѓСЃРєРµ СЃСЂР°Р·Сѓ СЃС‚Р°РІРёРј РєРѕРІС€ РІ РЅСѓР»РµРІРѕРµ (С‚СЂР°РЅСЃРїРѕСЂС‚РЅРѕРµ) РїРѕР»РѕР¶РµРЅРёРµ
-    print("РЈСЃС‚Р°РЅРѕРІРєР° РєРѕРІС€Р° РІ РЅСѓР»РµРІРѕРµ РїРѕР»РѕР¶РµРЅРёРµ...")
-    # РљРѕРІС€ РїРµСЂРµРІРѕРґРёРј РІ РЅРѕР»СЊ РїРѕСЃР»Рµ СЏРІРЅРѕРіРѕ РІС‹Р±РѕСЂР° РїРѕСЂС‚Р° Arduino РЅРёР¶Рµ.
+    # При запуске сразу ставим ковш в нулевое (транспортное) положение
+    print("Установка ковша в нулевое положение...")
+    # Ковш переводим в ноль после явного выбора порта Arduino ниже.
     
-    # Р—Р°РїСЂРѕСЃ РЅР°СЃС‚СЂРѕРµРє Сѓ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ
-    lidar_port = input(f"Р’РІРµРґРёС‚Рµ РїРѕСЂС‚ Р»РёРґР°СЂР° (Enter РґР»СЏ {config.get('lidar_port', '/dev/ttyUSB0')}): ").strip()
+    # Запрос настроек у пользователя
+    lidar_port = input(f"Введите порт лидара (Enter для {config.get('lidar_port', '/dev/ttyUSB0')}): ").strip()
     if not lidar_port: lidar_port = config.get('lidar_port', '/dev/ttyUSB0')
     config['lidar_port'] = lidar_port
     config["servo_pca_address"] = str(
@@ -2041,14 +2065,14 @@ def legacy_main_unused():
     except (TypeError, ValueError):
         config["bucket_servo_channel"] = BUCKET_SERVO_DEFAULT_CHANNEL
     init_bucket_servo_controller(config)
-    print("РЈСЃС‚Р°РЅРѕРІРєР° РєРѕРІС€Р° РІ РЅСѓР»РµРІРѕРµ РїРѕР»РѕР¶РµРЅРёРµ...")
+    print("Установка ковша в нулевое положение...")
     set_servo_bucket(down=True)
         
-    print("\nР“РґРµ РїРѕРєР°Р·С‹РІР°С‚СЊ РєР°СЂС‚Сѓ SLAM?")
-    print("1 - РџРѕРєР°Р·С‹РІР°С‚СЊ РІ Tailscale (С‡РµСЂРµР· SSH СЃ РїСЂРѕР±СЂРѕСЃРѕРј X11 РёР»Рё VNC)")
-    print("2 - РџРѕРєР°Р·С‹РІР°С‚СЊ РЅР° СЌРєСЂР°РЅРµ RPi РЅР° Armbian (С„РёР·РёС‡РµСЃРєРёР№ РјРѕРЅРёС‚РѕСЂ)")
-    print("3 - РќРµ РїРѕРєР°Р·С‹РІР°С‚СЊ РІРѕРѕР±С‰Рµ (РјР°РєСЃРёРјР°Р»СЊРЅР°СЏ СЃРєРѕСЂРѕСЃС‚СЊ)")
-    map_choice = input("Р’Р°С€ РІС‹Р±РѕСЂ (1, 2 РёР»Рё 3): ").strip()
+    print("\nГде показывать карту SLAM?")
+    print("1 - Показывать в Tailscale (через SSH с пробросом X11 или VNC)")
+    print("2 - Показывать на экране RPi на Armbian (физический монитор)")
+    print("3 - Не показывать вообще (максимальная скорость)")
+    map_choice = input("Ваш выбор (1, 2 или 3): ").strip()
     
     if map_choice == '2':
         os.environ["DISPLAY"] = ":0"
@@ -2058,11 +2082,11 @@ def legacy_main_unused():
     else:
         show_map = False
     
-    print("\nР“РґРµ Р·Р°РїСѓСЃРєР°С‚СЊ РЅРµР№СЂРѕСЃРµС‚СЊ YOLO РґР»СЏ СЃР±РѕСЂР° РјСѓСЃРѕСЂР°?")
-    print("1 - РќР° С‚РµР»РµС„РѕРЅРµ / РџРљ (РњР°РєСЃРёРјР°Р»СЊРЅР°СЏ СЃРєРѕСЂРѕСЃС‚СЊ, РїРѕ Wi-Fi)")
-    print("2 - Р›РѕРєР°Р»СЊРЅРѕ РЅР° Raspberry Pi (РќРёР·РєРёР№ FPS)")
-    print("3 - РћС‚РєР»СЋС‡РёС‚СЊ СЃР±РѕСЂ РјСѓСЃРѕСЂР°")
-    yolo_choice = input("Р’Р°С€ РІС‹Р±РѕСЂ (1, 2 РёР»Рё 3): ").strip()
+    print("\nГде запускать нейросеть YOLO для сбора мусора?")
+    print("1 - На телефоне / ПК (Максимальная скорость, по Wi-Fi)")
+    print("2 - Локально на Raspberry Pi (Низкий FPS)")
+    print("3 - Отключить сбор мусора")
+    yolo_choice = input("Ваш выбор (1, 2 или 3): ").strip()
     
     detector = None
     if yolo_choice == '1' and RemoteTrashListener:
@@ -2071,7 +2095,7 @@ def legacy_main_unused():
             on_motor_command=handle_remote_bucket_motor_command,
         )
         detector.start()
-        print("\n[Р’РќРРњРђРќРР•] РќР° С‚РµР»РµС„РѕРЅРµ (РІ Pydroid 3) Р·Р°РїСѓСЃС‚РёС‚Рµ СЃРєСЂРёРїС‚ `yolo_client.py`.")
+        print("\n[ВНИМАНИЕ] На телефоне (в Pydroid 3) запустите скрипт `yolo_client.py`.")
         
     elif yolo_choice == '2' and TrashDetector:
         models_dir = "models"
@@ -2082,78 +2106,78 @@ def legacy_main_unused():
         selected_model = None
         
         if not available_models:
-            print("\n[YOLO] Р’ РїР°РїРєРµ 'models' РїСѓСЃС‚Рѕ! РџРѕР¶Р°Р»СѓР№СЃС‚Р°, СЃРєРѕРїРёСЂСѓР№С‚Рµ С‚СѓРґР° РІР°С€Рё РјРѕРґРµР»Рё (РїР°РїРєРё NCNN).")
+            print("\n[YOLO] В папке 'models' пусто! Пожалуйста, скопируйте туда ваши модели (папки NCNN).")
         else:
-            print("\nР”РѕСЃС‚СѓРїРЅС‹Рµ РјРѕРґРµР»Рё РІ РїР°РїРєРµ 'models':")
+            print("\nДоступные модели в папке 'models':")
             for i, m in enumerate(available_models):
                 print(f"{i+1} - {m}")
             
             try:
-                m_idx = int(input(f"Р’С‹Р±РµСЂРёС‚Рµ РјРѕРґРµР»СЊ (1-{len(available_models)}): ").strip()) - 1
+                m_idx = int(input(f"Выберите модель (1-{len(available_models)}): ").strip()) - 1
                 if 0 <= m_idx < len(available_models):
                     selected_model = os.path.join(models_dir, available_models[m_idx])
             except ValueError:
-                print("РћС€РёР±РєР° РІРІРѕРґР°.")
+                print("Ошибка ввода.")
                 
         if selected_model:
             detector = TrashDetector(model_path=selected_model)
             detector.start()
         else:
-            print("[YOLO] РњРѕРґРµР»СЊ РЅРµ РІС‹Р±СЂР°РЅР°, РґРµС‚РµРєС‚РѕСЂ РјСѓСЃРѕСЂР° РѕС‚РєР»СЋС‡РµРЅ.")
+            print("[YOLO] Модель не выбрана, детектор мусора отключен.")
             
     else:
-        print("[YOLO] РЎР±РѕСЂ РјСѓСЃРѕСЂР° РѕС‚РєР»СЋС‡РµРЅ.")
+        print("[YOLO] Сбор мусора отключен.")
     
-    print("\nР’С‹Р±РµСЂРёС‚Рµ СЂРµР¶РёРј СЂР°Р±РѕС‚С‹:")
-    print("1 - Р СѓС‡РЅРѕР№ (СѓРїСЂР°РІР»РµРЅРёРµ СЃ РєР»Р°РІРёР°С‚СѓСЂС‹)")
-    print("2 - РђРІС‚РѕРїРёР»РѕС‚ (РѕР±С…РѕРґ РїСЂРµРїСЏС‚СЃС‚РІРёР№ Рё СЃР±РѕСЂ РјСѓСЃРѕСЂР°)")
-    mode_choice = input("Р’Р°С€ РІС‹Р±РѕСЂ (1 РёР»Рё 2): ").strip()
+    print("\nВыберите режим работы:")
+    print("1 - Ручной (управление с клавиатуры)")
+    print("2 - Автопилот (обход препятствий и сбор мусора)")
+    mode_choice = input("Ваш выбор (1 или 2): ").strip()
     
     auto_speed = config.get('auto_speed', 1500)
     if mode_choice == '2':
-        speed_str = input(f"Р’РІРµРґРёС‚Рµ СЃРєРѕСЂРѕСЃС‚СЊ Р°РІС‚РѕРїРёР»РѕС‚Р° РѕС‚ 0 РґРѕ 4095 (Enter РґР»СЏ {auto_speed}): ").strip()
+        speed_str = input(f"Введите скорость автопилота от 0 до 4095 (Enter для {auto_speed}): ").strip()
         if speed_str.isdigit():
             auto_speed = int(speed_str)
         config['auto_speed'] = auto_speed
         
     save_config(config)
     
-    # РЎРЅР°С‡Р°Р»Р° РІС‹РїРѕР»РЅСЏРµРј РєР°Р»РёР±СЂРѕРІРєСѓ
+    # Сначала выполняем калибровку
     calibrate_motors(config)
     
-    # Р—Р°РїСѓСЃРє РґСЂР°Р№РІРµСЂР° Р»РёРґР°СЂР°
+    # Запуск драйвера лидара
     driver = LD06Driver(port=lidar_port)
     driver.start()
     
     if not driver.running:
-        print("РћС€РёР±РєР°: Р›РёРґР°СЂ РЅРµ Р·Р°РїСѓС‰РµРЅ. РЈР±РµРґРёС‚РµСЃСЊ С‡С‚Рѕ РѕРЅ РїРѕРґРєР»СЋС‡РµРЅ Рє /dev/ttyUSB0.")
-        # РњРѕР¶РЅРѕ РїРѕР·РІРѕР»РёС‚СЊ РїСЂРѕРґРѕР»Р¶РёС‚СЊ Р±РµР· Р»РёРґР°СЂР° РґР»СЏ С‚РµСЃС‚РѕРІ, РЅРѕ Р»СѓС‡С€Рµ РІС‹Р№С‚Рё
+        print("Ошибка: Лидар не запущен. Убедитесь что он подключен к /dev/ttyUSB0.")
+        # Можно позволить продолжить без лидара для тестов, но лучше выйти
         # sys.exit(1)
         
-    # Р—Р°РїСѓСЃРє РїРѕС‚РѕРєР° SLAM
+    # Запуск потока SLAM
     slam_thread = threading.Thread(target=slam_thread_function, args=(driver, show_map), daemon=True)
     slam_thread.start()
 
     if mode_choice == '2':
-        # Р—Р°РїСѓСЃРє Р°РІС‚РѕРїРёР»РѕС‚Р°
+        # Запуск автопилота
         autonomous_loop(driver, auto_speed, detector)
     else:
-        # Р СѓС‡РЅРѕР№ СЂРµР¶РёРј
-        print("\nР¤РѕСЂРјР°С‚ РІРІРѕРґР°: 'Р РµР¶РёРј РЎРєРѕСЂРѕСЃС‚СЊ' (РЅР°РїСЂРёРјРµСЂ, '1 1000').")
-        print("Р РµР¶РёРјС‹: 1-Р’РїРµСЂРµРґ, 2-РќР°Р·Р°Рґ, 3-Р’Р»РµРІРѕ, 4-Р’РїСЂР°РІРѕ, 0-РћСЃС‚Р°РЅРѕРІРєР°")
-        print("РЎРєРѕСЂРѕСЃС‚СЊ: 0 - 4095. РќР°Р¶РјРёС‚Рµ Ctrl+C РґР»СЏ Р­РљРЎРўР Р•РќРќРћР™ РћРЎРўРђРќРћР’РљР Рё РІС‹С…РѕРґР°.")
-        print("РўР°РєР¶Рµ РґР»СЏ Р±С‹СЃС‚СЂРѕР№ РѕСЃС‚Р°РЅРѕРІРєРё РїСЂРѕСЃС‚Рѕ РЅР°Р¶РјРёС‚Рµ ENTER (РїСѓСЃС‚РѕР№ РІРІРѕРґ) РёР»Рё Р»СЋР±СѓСЋ Р±СѓРєРІСѓ.\n")
+        # Ручной режим
+        print("\nФормат ввода: 'Режим Скорость' (например, '1 1000').")
+        print("Режимы: 1-Вперед, 2-Назад, 3-Влево, 4-Вправо, 0-Остановка")
+        print("Скорость: 0 - 4095. Нажмите Ctrl+C для ЭКСТРЕННОЙ ОСТАНОВКИ и выхода.")
+        print("Также для быстрой остановки просто нажмите ENTER (пустой ввод) или любую букву.\n")
         
         stop_all()
 
         try:
             while True:
-                cmd = input("Р’РІРµРґРёС‚Рµ РєРѕРјР°РЅРґСѓ: ").strip()
+                cmd = input("Введите команду: ").strip()
                 
-                # Р­РєСЃС‚СЂРµРЅРЅР°СЏ РѕСЃС‚Р°РЅРѕРІРєР° РїСЂРё РїСѓСЃС‚РѕРј РІРІРѕРґРµ (РїСЂРѕСЃС‚Рѕ СѓРґР°СЂ РїРѕ Enter) РёР»Рё РІРІРѕРґРµ Р±СѓРєРІС‹ 'e'
+                # Экстренная остановка при пустом вводе (просто удар по Enter) или вводе буквы 'e'
                 if not cmd or cmd.lower() in ['e', 's', 'stop']:
                     stop_all()
-                    print("Р­РљРЎРўР Р•РќРќРђРЇ РћРЎРўРђРќРћР’РљРђ!")
+                    print("ЭКСТРЕННАЯ ОСТАНОВКА!")
                     continue
                     
                 try:
@@ -2162,7 +2186,7 @@ def legacy_main_unused():
                     
                     if mode == 0:
                         stop_all()
-                        print("РњРѕС‚РѕСЂС‹ РѕСЃС‚Р°РЅРѕРІР»РµРЅС‹.")
+                        print("Моторы остановлены.")
                         continue
                         
                     speed = int(parts[1]) if len(parts) > 1 else 1000
@@ -2173,41 +2197,41 @@ def legacy_main_unused():
                         current_speed = speed
                     
                     if mode == 1:
-                        print(f"Р”РІРёР¶РµРЅРёРµ Р’РџР•Р Р•Р” РЅР° СЃРєРѕСЂРѕСЃС‚Рё {speed}")
+                        print(f"Движение ВПЕРЕД на скорости {speed}")
                         set_motors(speed, 0, speed, 0)
                     elif mode == 2:
-                        print(f"Р”РІРёР¶РµРЅРёРµ РќРђР—РђР” РЅР° СЃРєРѕСЂРѕСЃС‚Рё {speed}")
+                        print(f"Движение НАЗАД на скорости {speed}")
                         set_motors(0, speed, 0, speed)
                     elif mode == 3:
-                        print(f"РџРѕРІРѕСЂРѕС‚ Р’Р›Р•Р’Рћ РЅР° СЃРєРѕСЂРѕСЃС‚Рё {speed}")
+                        print(f"Поворот ВЛЕВО на скорости {speed}")
                         set_motors(speed, 0, 0, speed)
                     elif mode == 4:
-                        print(f"РџРѕРІРѕСЂРѕС‚ Р’РџР РђР’Рћ РЅР° СЃРєРѕСЂРѕСЃС‚Рё {speed}")
+                        print(f"Поворот ВПРАВО на скорости {speed}")
                         set_motors(0, speed, speed, 0)
                     else:
-                        print("РќРµРёР·РІРµСЃС‚РЅС‹Р№ СЂРµР¶РёРј! РћСЃС‚Р°РЅРѕРІРєР°.")
+                        print("Неизвестный режим! Остановка.")
                         stop_all()
                         
                 except ValueError:
-                    # Р­РєСЃС‚СЂРµРЅРЅР°СЏ РѕСЃС‚Р°РЅРѕРІРєР° РїСЂРё СЃР»СѓС‡Р°Р№РЅРѕРј РІРІРѕРґРµ Р»СЋР±С‹С… СЃРёРјРІРѕР»РѕРІ
-                    print("РћС€РёР±РєР° РІРІРѕРґР° (РІРІРµРґРµРЅС‹ РЅРµ С‡РёСЃР»Р°). Р­РљРЎРўР Р•РќРќРђРЇ РћРЎРўРђРќРћР’РљРђ!")
+                    # Экстренная остановка при случайном вводе любых символов
+                    print("Ошибка ввода (введены не числа). ЭКСТРЕННАЯ ОСТАНОВКА!")
                     stop_all()
 
         except KeyboardInterrupt:
-            print("\nР’С‹С…РѕРґ РёР· СЂСѓС‡РЅРѕРіРѕ СЂРµР¶РёРјР°...")
+            print("\nВыход из ручного режима...")
             
-    # Р—Р°РІРµСЂС€РµРЅРёРµ СЂР°Р±РѕС‚С‹
+    # Завершение работы
     stop_all()
     driver.stop()
     close_bucket_arduino()
 
 def main():
-    print("=== РЎРёСЃС‚РµРјР° СѓРїСЂР°РІР»РµРЅРёСЏ + FastSLAM + YOLO ===")
+    print("=== Система управления + FastSLAM + YOLO ===")
 
     config = global_config
 
     lidar_port = prompt_for_serial_port(
-        "Р»РёРґР°СЂР°",
+        "лидара",
         saved_port=config.get("lidar_port", "/dev/ttyUSB0"),
     )
     config["lidar_port"] = lidar_port
@@ -2236,15 +2260,15 @@ def main():
     init_bucket_servo_controller(config)
     calibrate_bucket_wall(config)
 
-    print("\nРЈСЃС‚Р°РЅРѕРІРєР° РєРѕРІС€Р° РІ РїРѕРёСЃРєРѕРІРѕРµ РїРѕР»РѕР¶РµРЅРёРµ...")
+    print("\nУстановка ковша в поисковое положение...")
     move_bucket_wall_to_search_position()
     set_servo_bucket(down=True)
 
-    print("\nР“РґРµ РїРѕРєР°Р·С‹РІР°С‚СЊ РєР°СЂС‚Сѓ SLAM?")
-    print("1 - РџРѕРєР°Р·С‹РІР°С‚СЊ РІ Tailscale (С‡РµСЂРµР· SSH СЃ X11 РёР»Рё VNC)")
-    print("2 - РџРѕРєР°Р·С‹РІР°С‚СЊ РЅР° СЌРєСЂР°РЅРµ RPi РЅР° Armbian")
-    print("3 - РќРµ РїРѕРєР°Р·С‹РІР°С‚СЊ РІРѕРѕР±С‰Рµ")
-    map_choice = input("Р’Р°С€ РІС‹Р±РѕСЂ (1, 2 РёР»Рё 3): ").strip()
+    print("\nГде показывать карту SLAM?")
+    print("1 - Показывать в Tailscale (через SSH с X11 или VNC)")
+    print("2 - Показывать на экране RPi на Armbian")
+    print("3 - Не показывать вообще")
+    map_choice = input("Ваш выбор (1, 2 или 3): ").strip()
 
     if not map_choice:
         map_choice = str(config.get("map_choice", "3"))
@@ -2260,11 +2284,11 @@ def main():
     else:
         show_map = False
 
-    print("\nР“РґРµ Р·Р°РїСѓСЃРєР°С‚СЊ РЅРµР№СЂРѕСЃРµС‚СЊ YOLO РґР»СЏ СЃР±РѕСЂР° РјСѓСЃРѕСЂР°?")
-    print("1 - РќР° С‚РµР»РµС„РѕРЅРµ / РџРљ (РјР°РєСЃРёРјР°Р»СЊРЅР°СЏ СЃРєРѕСЂРѕСЃС‚СЊ, РїРѕ Wi-Fi)")
-    print("2 - Р›РѕРєР°Р»СЊРЅРѕ РЅР° Raspberry Pi (РЅРёР·РєРёР№ FPS)")
-    print("3 - РћС‚РєР»СЋС‡РёС‚СЊ СЃР±РѕСЂ РјСѓСЃРѕСЂР°")
-    yolo_choice = input("Р’Р°С€ РІС‹Р±РѕСЂ (1, 2 РёР»Рё 3): ").strip()
+    print("\nГде запускать нейросеть YOLO для сбора мусора?")
+    print("1 - На телефоне / ПК (максимальная скорость, по Wi-Fi)")
+    print("2 - Локально на Raspberry Pi (низкий FPS)")
+    print("3 - Отключить сбор мусора")
+    yolo_choice = input("Ваш выбор (1, 2 или 3): ").strip()
 
     if not yolo_choice:
         yolo_choice = str(config.get("yolo_choice", "1"))
@@ -2279,7 +2303,7 @@ def main():
             on_motor_command=handle_remote_bucket_motor_command,
         )
         detector.start()
-        print("\n[Р’РќРРњРђРќРР•] РќР° С‚РµР»РµС„РѕРЅРµ (РІ Pydroid 3) Р·Р°РїСѓСЃС‚РёС‚Рµ СЃРєСЂРёРїС‚ `yolo_client.py`.")
+        print("\n[ВНИМАНИЕ] На телефоне (в Pydroid 3) запустите скрипт `yolo_client.py`.")
     elif yolo_choice == "2" and TrashDetector:
         models_dir = "models"
         if not os.path.exists(models_dir):
@@ -2289,36 +2313,36 @@ def main():
         selected_model = None
 
         if not available_models:
-            print("\n[YOLO] Р’ РїР°РїРєРµ 'models' РїСѓСЃС‚Рѕ. РЎРєРѕРїРёСЂСѓР№С‚Рµ С‚СѓРґР° РІР°С€Рё РјРѕРґРµР»Рё (РїР°РїРєРё NCNN).")
+            print("\n[YOLO] В папке 'models' пусто. Скопируйте туда ваши модели (папки NCNN).")
         else:
-            print("\nР”РѕСЃС‚СѓРїРЅС‹Рµ РјРѕРґРµР»Рё РІ РїР°РїРєРµ 'models':")
+            print("\nДоступные модели в папке 'models':")
             for i, model_name in enumerate(available_models):
                 print(f"{i + 1} - {model_name}")
 
             try:
-                model_index = int(input(f"Р’С‹Р±РµСЂРёС‚Рµ РјРѕРґРµР»СЊ (1-{len(available_models)}): ").strip()) - 1
+                model_index = int(input(f"Выберите модель (1-{len(available_models)}): ").strip()) - 1
                 if 0 <= model_index < len(available_models):
                     selected_model = os.path.join(models_dir, available_models[model_index])
             except ValueError:
-                print("РћС€РёР±РєР° РІРІРѕРґР°.")
+                print("Ошибка ввода.")
 
         if selected_model:
             detector = TrashDetector(model_path=selected_model)
             detector.start()
         else:
-            print("[YOLO] РњРѕРґРµР»СЊ РЅРµ РІС‹Р±СЂР°РЅР°, РґРµС‚РµРєС‚РѕСЂ РјСѓСЃРѕСЂР° РѕС‚РєР»СЋС‡РµРЅ.")
+            print("[YOLO] Модель не выбрана, детектор мусора отключен.")
     else:
-        print("[YOLO] РЎР±РѕСЂ РјСѓСЃРѕСЂР° РѕС‚РєР»СЋС‡РµРЅ.")
+        print("[YOLO] Сбор мусора отключен.")
 
-    print("\nР’С‹Р±РµСЂРёС‚Рµ СЂРµР¶РёРј СЂР°Р±РѕС‚С‹:")
-    print("1 - Р СѓС‡РЅРѕР№ (СѓРїСЂР°РІР»РµРЅРёРµ СЃ РєР»Р°РІРёР°С‚СѓСЂС‹)")
-    print("2 - РђРІС‚РѕРїРёР»РѕС‚ (РѕР±С…РѕРґ РїСЂРµРїСЏС‚СЃС‚РІРёР№ Рё СЃР±РѕСЂ РјСѓСЃРѕСЂР°)")
-    mode_choice = input("Р’Р°С€ РІС‹Р±РѕСЂ (1 РёР»Рё 2): ").strip()
+    print("\nВыберите режим работы:")
+    print("1 - Ручной (управление с клавиатуры)")
+    print("2 - Автопилот (обход препятствий и сбор мусора)")
+    mode_choice = input("Ваш выбор (1 или 2): ").strip()
 
     if not mode_choice:
         mode_choice = str(config.get("run_mode", "2"))
     if mode_choice not in {"1", "2"}:
-        print("[Р Р•Р–РРњ] РќРµРёР·РІРµСЃС‚РЅС‹Р№ СЂРµР¶РёРј, РІРєР»СЋС‡Р°СЋ Р°РІС‚РѕРїРёР»РѕС‚ РїРѕ СѓРјРѕР»С‡Р°РЅРёСЋ.")
+        print("[РЕЖИМ] Неизвестный режим, включаю автопилот по умолчанию.")
         mode_choice = "2"
     config["run_mode"] = mode_choice
 
@@ -2327,7 +2351,7 @@ def main():
 
     auto_speed = config.get("auto_speed", 1500)
     if mode_choice == "2":
-        speed_str = input(f"Р’РІРµРґРёС‚Рµ СЃРєРѕСЂРѕСЃС‚СЊ Р°РІС‚РѕРїРёР»РѕС‚Р° РѕС‚ 0 РґРѕ 4095 (Enter РґР»СЏ {auto_speed}): ").strip()
+        speed_str = input(f"Введите скорость автопилота от 0 до 4095 (Enter для {auto_speed}): ").strip()
         if speed_str.isdigit():
             auto_speed = int(speed_str)
         config["auto_speed"] = auto_speed
@@ -2339,7 +2363,7 @@ def main():
     driver.start()
 
     if not driver.running:
-        print("РћС€РёР±РєР°: Р»РёРґР°СЂ РЅРµ Р·Р°РїСѓС‰РµРЅ. РЈР±РµРґРёС‚РµСЃСЊ, С‡С‚Рѕ РѕРЅ РїРѕРґРєР»СЋС‡РµРЅ Рє РІС‹Р±СЂР°РЅРЅРѕРјСѓ РїРѕСЂС‚Сѓ.")
+        print("Ошибка: лидар не запущен. Убедитесь, что он подключен к выбранному порту.")
 
     slam_thread = threading.Thread(target=slam_thread_function, args=(driver, show_map), daemon=True)
     slam_thread.start()
@@ -2348,19 +2372,19 @@ def main():
         if mode_choice == "2":
             autonomous_loop(driver, auto_speed, detector)
         else:
-            print("\nР¤РѕСЂРјР°С‚ РІРІРѕРґР°: 'Р РµР¶РёРј РЎРєРѕСЂРѕСЃС‚СЊ' (РЅР°РїСЂРёРјРµСЂ, '1 1000').")
-            print("Р РµР¶РёРјС‹: 1-Р’РїРµСЂРµРґ, 2-РќР°Р·Р°Рґ, 3-Р’Р»РµРІРѕ, 4-Р’РїСЂР°РІРѕ, 0-РћСЃС‚Р°РЅРѕРІРєР°")
-            print("РЎРєРѕСЂРѕСЃС‚СЊ: 0 - 4095. Enter РёР»Рё stop - СЌРєСЃС‚СЂРµРЅРЅР°СЏ РѕСЃС‚Р°РЅРѕРІРєР°.\n")
+            print("\nФормат ввода: 'Режим Скорость' (например, '1 1000').")
+            print("Режимы: 1-Вперед, 2-Назад, 3-Влево, 4-Вправо, 0-Остановка")
+            print("Скорость: 0 - 4095. Enter или stop - экстренная остановка.\n")
 
             print("Manual bucket commands: wall_up, wall_down, scoop_up, scoop_down, bucket_test, collect")
             stop_all()
 
             while True:
-                cmd = input("Р’РІРµРґРёС‚Рµ РєРѕРјР°РЅРґСѓ: ").strip()
+                cmd = input("Введите команду: ").strip()
 
                 if not cmd or cmd.lower() in ["e", "s", "stop"]:
                     stop_all()
-                    print("Р­РљРЎРўР Р•РќРќРђРЇ РћРЎРўРђРќРћР’РљРђ!")
+                    print("ЭКСТРЕННАЯ ОСТАНОВКА!")
                     continue
 
                 lowered_cmd = cmd.lower()
@@ -2389,7 +2413,7 @@ def main():
 
                     if mode == 0:
                         stop_all()
-                        print("РњРѕС‚РѕСЂС‹ РѕСЃС‚Р°РЅРѕРІР»РµРЅС‹.")
+                        print("Моторы остановлены.")
                         continue
 
                     speed = int(parts[1]) if len(parts) > 1 else 1000
@@ -2400,25 +2424,25 @@ def main():
                         current_speed = speed
 
                     if mode == 1:
-                        print(f"Р”РІРёР¶РµРЅРёРµ Р’РџР•Р Р•Р” РЅР° СЃРєРѕСЂРѕСЃС‚Рё {speed}")
+                        print(f"Движение ВПЕРЕД на скорости {speed}")
                         set_motors(speed, 0, speed, 0)
                     elif mode == 2:
-                        print(f"Р”РІРёР¶РµРЅРёРµ РќРђР—РђР” РЅР° СЃРєРѕСЂРѕСЃС‚Рё {speed}")
+                        print(f"Движение НАЗАД на скорости {speed}")
                         set_motors(0, speed, 0, speed)
                     elif mode == 3:
-                        print(f"РџРѕРІРѕСЂРѕС‚ Р’Р›Р•Р’Рћ РЅР° СЃРєРѕСЂРѕСЃС‚Рё {speed}")
+                        print(f"Поворот ВЛЕВО на скорости {speed}")
                         set_motors(speed, 0, 0, speed)
                     elif mode == 4:
-                        print(f"РџРѕРІРѕСЂРѕС‚ Р’РџР РђР’Рћ РЅР° СЃРєРѕСЂРѕСЃС‚Рё {speed}")
+                        print(f"Поворот ВПРАВО на скорости {speed}")
                         set_motors(0, speed, speed, 0)
                     else:
-                        print("РќРµРёР·РІРµСЃС‚РЅС‹Р№ СЂРµР¶РёРј! РћСЃС‚Р°РЅРѕРІРєР°.")
+                        print("Неизвестный режим! Остановка.")
                         stop_all()
                 except ValueError:
-                    print("РћС€РёР±РєР° РІРІРѕРґР°. Р­РљРЎРўР Р•РќРќРђРЇ РћРЎРўРђРќРћР’РљРђ!")
+                    print("Ошибка ввода. ЭКСТРЕННАЯ ОСТАНОВКА!")
                     stop_all()
     except KeyboardInterrupt:
-        print("\nР—Р°РІРµСЂС€РµРЅРёРµ СЂР°Р±РѕС‚С‹ РїРѕ Р·Р°РїСЂРѕСЃСѓ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ...")
+        print("\nЗавершение работы по запросу пользователя...")
     finally:
         stop_all()
         driver.stop()
@@ -2429,7 +2453,7 @@ def start_video_streamer(config):
     global video_streamer_process, video_streamer_last_error, video_streamer_last_source
 
     if video_streamer_process and video_streamer_process.poll() is None:
-        print("[VIDEO] Р’РёРґРµРѕСЃС‚СЂРёРјРµСЂ СѓР¶Рµ Р·Р°РїСѓС‰РµРЅ.")
+        print("[VIDEO] Видеостример уже запущен.")
         return
 
     camera_port = resolve_camera_port(str(config.get("camera_port", "/dev/video0")).strip())
@@ -2454,11 +2478,11 @@ def start_video_streamer(config):
         video_streamer_process = subprocess.Popen(command)
         time.sleep(1.0)
         if video_streamer_process.poll() is None:
-            print(f"[VIDEO] Р’РёРґРµРѕСЃС‚СЂРёРјРµСЂ Р·Р°РїСѓС‰РµРЅ РґР»СЏ {camera_port} РЅР° РїРѕСЂС‚Сѓ {stream_port}.")
+            print(f"[VIDEO] Видеостример запущен для {camera_port} на порту {stream_port}.")
         else:
-            print("[VIDEO] Р’РёРґРµРѕСЃС‚СЂРёРјРµСЂ Р·Р°РІРµСЂС€РёР»СЃСЏ СЃСЂР°Р·Сѓ РїРѕСЃР»Рµ Р·Р°РїСѓСЃРєР°. РџСЂРѕРІРµСЂСЊС‚Рµ РїРѕСЂС‚ РєР°РјРµСЂС‹.")
+            print("[VIDEO] Видеостример завершился сразу после запуска. Проверьте порт камеры.")
     except Exception as e:
-        print(f"[VIDEO] РќРµ СѓРґР°Р»РѕСЃСЊ Р·Р°РїСѓСЃС‚РёС‚СЊ РІРёРґРµРѕСЃС‚СЂРёРјРµСЂ: {e}")
+        print(f"[VIDEO] Не удалось запустить видеостример: {e}")
         video_streamer_process = None
 
 def get_video_streamer_status():
@@ -2498,4 +2522,3 @@ def stop_video_streamer():
 
 if __name__ == "__main__":
     main()
-

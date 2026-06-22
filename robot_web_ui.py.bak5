@@ -4,7 +4,7 @@ import threading
 import time
 from typing import Any, Dict, Optional
 
-from flask import Flask, Response, jsonify, request
+from flask import Flask, jsonify, request
 
 import main_slam as robot
 
@@ -18,11 +18,6 @@ def add_no_cache_headers(response):
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
     return response
-
-
-@app.get("/favicon.ico")
-def favicon():
-    return Response(status=204)
 
 
 DEFAULT_CONFIG = {
@@ -524,7 +519,6 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
 
   <script>
     var lastStatus = null;
-    var currentLanguage = 'ru';
     var manualDriveEnabled = false;
     var activeDriveAction = null;
     var activeDriveKey = null;
@@ -561,366 +555,95 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
       slam_route_record_step_m: 0.35,
       selected_model_name: ''
     };
-    var translations = {
-      ru: {
-        heroTitle: 'Станция управления роботом',
-        heroSubtitle: 'Запуск, видеопоток, ручное управление и статусы в одном окне.',
-        launchSettingsTitle: 'Параметры запуска',
-        labelLidarPort: 'Порт лидара',
-        labelDrivePcaAddress: 'I2C адрес PCA моторов',
-        labelServoPcaAddress: 'I2C адрес PCA сервы',
-        labelBucketServoChannel: 'Канал сервы ковша',
-        labelCameraPort: 'Порт камеры',
-        labelCameraStreamPort: 'Порт видеопотока',
-        labelRunMode: 'Режим',
-        optionAutopilot: 'Автопилот',
-        optionManual: 'Ручной',
-        labelAutoSpeed: 'Скорость автопилота',
-        labelManualSpeed: 'Скорость ручного режима',
-        labelYoloChoice: 'Источник YOLO',
-        optionYoloPhone: 'Телефон / ПК по Wi-Fi',
-        optionYoloLocal: 'Локальная модель на Raspberry Pi',
-        optionDisabledA: 'Отключено',
-        labelRouteSource: 'Источник маршрута',
-        optionDisabledB: 'Отключено',
-        optionRouteSlam: 'Маршрут LiDAR SLAM',
-        optionRouteGps: 'Маршрут с телефона / indoor positioning',
-        labelRouteCorridor: 'Коридор маршрута (м)',
-        labelSlamStep: 'Шаг точек SLAM (м)',
-        labelModelName: 'Локальная модель',
-        buttonSaveConfig: 'Сохранить конфиг',
-        buttonStartRobot: 'Запустить',
-        buttonPrepareBucket: 'Подготовить ковш',
-        buttonStopRobot: 'Остановить',
-        labelStatRunning: 'Состояние',
-        labelStatMode: 'Режим',
-        labelStatVideo: 'Видеопоток',
-        labelStatTrash: 'Детектор',
-        labelStatServoController: 'PCA сервы ковша',
-        labelStatModel: 'Модель',
-        labelStatRouteSource: 'Источник маршрута',
-        labelStatRoute: 'Маршрут',
-        labelStatLidar: 'LiDAR',
-        labelStatUptime: 'Время работы',
-        labelStatSpeed: 'Скорость',
-        labelStatPose: 'Поза SLAM',
-        liveVideoTitle: 'Живое видео',
-        manualDriveTitle: 'Ручное движение',
-        buttonForward: 'Вперед',
-        buttonLeft: 'Влево',
-        buttonStop: 'СТОП',
-        buttonRight: 'Вправо',
-        buttonBackward: 'Назад',
-        bucketControlTitle: 'Ковш',
-        buttonWallDown: 'Стенка вниз',
-        buttonWallUp: 'Стенка вверх',
-        scoopDown: 'Совок 90°',
-        scoopUp: 'Совок 0°',
-        buttonTimedTest: 'Тест по времени',
-        buttonCollect: 'Цикл сбора',
-        slamRouteTitle: 'SLAM маршрут',
-        buttonRecordRoute: 'Запись маршрута',
-        buttonStopRecord: 'Стоп записи',
-        buttonClearRoute: 'Очистить маршрут',
-        buttonRefresh: 'Обновить',
-        systemLogTitle: 'Журнал',
-        heroStopped: 'Остановлен',
-        heroRunning: 'Работает',
-        online: 'онлайн',
-        offline: 'офлайн',
-        connected: 'подключено',
-        disconnected: 'отключено',
-        stopped: 'остановлен',
-        loading: 'Загрузка...',
-        noMessages: 'Сообщений пока нет.',
-        cameraWaiting: 'Ожидание видеопотока...',
-        manualLocked: 'Ручное управление станет доступно после запуска в manual mode.',
-        manualReady: 'Удерживай кнопку или используй WASD / стрелки.',
-        modeAutopilotNote: 'Автопилот запускает LiDAR, камеру и детектор.',
-        modeManualNote: 'Ручной режим включает веб-кнопки и WASD / стрелки.',
-        detectedSerial: 'Найденные serial:',
-        detectedVideo: 'Найденные video:',
-        detectedI2C: 'Найденные I2C:',
-        drivePcaHint: 'Найденные I2C адреса появятся здесь.',
-        servoPcaHint: 'Не используй 0x70 как адрес отдельной платы PCA9685.',
-        lidarHint: 'Найденные serial-порты появятся здесь.',
-        cameraHint: 'Найденные video-устройства появятся здесь.',
-        modelHint: 'Список моделей читается из папки models автоматически.',
-        autoModel: 'Автовыбор модели',
-        noModels: 'Локальные модели не найдены',
-        routeDisabled: 'отключен',
-        phoneRouteActive: 'маршрут с телефона активен',
-        waitingPhoneRoute: 'ожидание маршрута с телефона',
-        routePoints: 'точек',
-        errorPrefix: 'Ошибка',
-        streamPrefix: 'Поток',
-        cameraPrefix: 'Камера',
-        videoPrefix: 'Видео',
-        i2cPrefix: 'I2C',
-        configPrefix: 'Конфиг',
-        routePrefix: 'Маршрут'
-      },
-      en: {
-        heroTitle: 'Robot Control Station',
-        heroSubtitle: 'Start, stream, drive, and watch status in one place.',
-        launchSettingsTitle: 'Launch Settings',
-        labelLidarPort: 'LiDAR port',
-        labelDrivePcaAddress: 'Drive PCA I2C address',
-        labelServoPcaAddress: 'Servo PCA I2C address',
-        labelBucketServoChannel: 'Bucket servo channel',
-        labelCameraPort: 'Camera port',
-        labelCameraStreamPort: 'Camera stream port',
-        labelRunMode: 'Run mode',
-        optionAutopilot: 'Autopilot',
-        optionManual: 'Manual',
-        labelAutoSpeed: 'Autopilot speed',
-        labelManualSpeed: 'Manual speed',
-        labelYoloChoice: 'YOLO source',
-        optionYoloPhone: 'Phone / PC over Wi-Fi',
-        optionYoloLocal: 'Local model on Raspberry Pi',
-        optionDisabledA: 'Disabled',
-        labelRouteSource: 'Route source',
-        optionDisabledB: 'Disabled',
-        optionRouteSlam: 'LiDAR SLAM route',
-        optionRouteGps: 'Phone / indoor positioning',
-        labelRouteCorridor: 'Route corridor (m)',
-        labelSlamStep: 'SLAM point step (m)',
-        labelModelName: 'Local model',
-        buttonSaveConfig: 'Save config',
-        buttonStartRobot: 'Start',
-        buttonPrepareBucket: 'Prepare bucket',
-        buttonStopRobot: 'Stop',
-        labelStatRunning: 'State',
-        labelStatMode: 'Mode',
-        labelStatVideo: 'Camera stream',
-        labelStatTrash: 'Detector',
-        labelStatServoController: 'Bucket servo PCA',
-        labelStatModel: 'Model',
-        labelStatRouteSource: 'Route source',
-        labelStatRoute: 'Route',
-        labelStatLidar: 'LiDAR',
-        labelStatUptime: 'Uptime',
-        labelStatSpeed: 'Speed',
-        labelStatPose: 'SLAM pose',
-        liveVideoTitle: 'Live Video',
-        manualDriveTitle: 'Manual Drive',
-        buttonForward: 'Forward',
-        buttonLeft: 'Left',
-        buttonStop: 'STOP',
-        buttonRight: 'Right',
-        buttonBackward: 'Backward',
-        bucketControlTitle: 'Bucket',
-        buttonWallDown: 'Wall down',
-        buttonWallUp: 'Wall up',
-        scoopDown: 'Scoop 90°',
-        scoopUp: 'Scoop 0°',
-        buttonTimedTest: 'Timed test',
-        buttonCollect: 'Collect cycle',
-        slamRouteTitle: 'SLAM Route',
-        buttonRecordRoute: 'Record route',
-        buttonStopRecord: 'Stop record',
-        buttonClearRoute: 'Clear route',
-        buttonRefresh: 'Refresh',
-        systemLogTitle: 'System Log',
-        heroStopped: 'Stopped',
-        heroRunning: 'Running',
-        online: 'online',
-        offline: 'offline',
-        connected: 'connected',
-        disconnected: 'disconnected',
-        stopped: 'stopped',
-        loading: 'Loading...',
-        noMessages: 'No messages yet.',
-        cameraWaiting: 'Waiting for live stream...',
-        manualLocked: 'Manual drive becomes available after starting manual mode.',
-        manualReady: 'Hold a button or use WASD / arrow keys.',
-        modeAutopilotNote: 'Autopilot starts LiDAR, camera, and detector.',
-        modeManualNote: 'Manual mode enables web buttons and WASD / arrows.',
-        detectedSerial: 'Detected serial:',
-        detectedVideo: 'Detected video:',
-        detectedI2C: 'Detected I2C:',
-        drivePcaHint: 'Detected I2C addresses will appear here.',
-        servoPcaHint: 'Do not use 0x70 as a standalone PCA9685 board address.',
-        lidarHint: 'Detected serial ports will appear here.',
-        cameraHint: 'Detected video devices will appear here.',
-        modelHint: 'Model list is read from the models folder automatically.',
-        autoModel: 'Auto-pick model',
-        noModels: 'No local models found',
-        routeDisabled: 'disabled',
-        phoneRouteActive: 'phone route active',
-        waitingPhoneRoute: 'waiting for phone route',
-        routePoints: 'pts',
-        errorPrefix: 'Error',
-        streamPrefix: 'Stream',
-        cameraPrefix: 'Camera',
-        videoPrefix: 'Video',
-        i2cPrefix: 'I2C',
-        configPrefix: 'Config',
-        routePrefix: 'Route'
-      }
-    };
 
-    function byId(id) { return document.getElementById(id); }
-    function t(key) {
-      var table = translations[currentLanguage] || translations.ru;
-      if (table[key]) return table[key];
-      return key;
-    }
-
-    function setLog(text) {
-      var logBox = byId('logBox');
-      if (logBox) logBox.textContent = text || t('noMessages');
-    }
-
-    function setFetchError(error) {
-      var details = 'request failed';
-      var hero = byId('heroStatus');
-      if (error) {
-        if (typeof error === 'string') details = error;
-        else if (error.message) details = error.message;
-      }
-      if (hero) {
-        hero.textContent = t('errorPrefix') + ': ' + details;
-        hero.style.background = 'rgba(255,107,107,0.15)';
-      }
-      setLog(t('errorPrefix') + ': ' + details);
+    function byId(id) {
+      return document.getElementById(id);
     }
 
     function setLanguage(lang) {
+      var nextLang = lang || 'ru';
+      try {
+        localStorage.setItem('robot_ui_language', nextLang);
+      } catch (e) {}
+      document.documentElement.lang = nextLang;
       var select = byId('languageSelect');
-      currentLanguage = translations[lang] ? lang : 'ru';
-      try { localStorage.setItem('robot_ui_language', currentLanguage); } catch (e) {}
-      document.documentElement.lang = currentLanguage;
-      if (select) select.value = currentLanguage;
-      applyTranslations();
-      if (lastStatus) updateStatusUi(lastStatus, false);
-      else {
-        var hero = byId('heroStatus');
-        if (hero) hero.textContent = t('loading');
-        setLog('');
+      if (select) {
+        select.value = nextLang;
       }
     }
 
     function restoreLanguage() {
       var saved = 'ru';
-      try { saved = localStorage.getItem('robot_ui_language') || 'ru'; } catch (e) {}
+      try {
+        saved = localStorage.getItem('robot_ui_language') || 'ru';
+      } catch (e) {}
       setLanguage(saved);
     }
 
-    function applyTranslations() {
-      var textMap = {
-        heroTitle: 'heroTitle',
-        heroSubtitle: 'heroSubtitle',
-        launchSettingsTitle: 'launchSettingsTitle',
-        labelLidarPort: 'labelLidarPort',
-        labelDrivePcaAddress: 'labelDrivePcaAddress',
-        labelServoPcaAddress: 'labelServoPcaAddress',
-        labelBucketServoChannel: 'labelBucketServoChannel',
-        labelCameraPort: 'labelCameraPort',
-        labelCameraStreamPort: 'labelCameraStreamPort',
-        labelRunMode: 'labelRunMode',
-        optionAutopilot: 'optionAutopilot',
-        optionManual: 'optionManual',
-        labelAutoSpeed: 'labelAutoSpeed',
-        labelManualSpeed: 'labelManualSpeed',
-        labelYoloChoice: 'labelYoloChoice',
-        optionYoloPhone: 'optionYoloPhone',
-        optionYoloLocal: 'optionYoloLocal',
-        optionDisabledA: 'optionDisabledA',
-        labelRouteSource: 'labelRouteSource',
-        optionDisabledB: 'optionDisabledB',
-        optionRouteSlam: 'optionRouteSlam',
-        optionRouteGps: 'optionRouteGps',
-        labelRouteCorridor: 'labelRouteCorridor',
-        labelSlamStep: 'labelSlamStep',
-        labelModelName: 'labelModelName',
-        buttonSaveConfig: 'buttonSaveConfig',
-        buttonStartRobot: 'buttonStartRobot',
-        buttonPrepareBucket: 'buttonPrepareBucket',
-        buttonStopRobot: 'buttonStopRobot',
-        labelStatRunning: 'labelStatRunning',
-        labelStatMode: 'labelStatMode',
-        labelStatVideo: 'labelStatVideo',
-        labelStatTrash: 'labelStatTrash',
-        labelStatServoController: 'labelStatServoController',
-        labelStatModel: 'labelStatModel',
-        labelStatRouteSource: 'labelStatRouteSource',
-        labelStatRoute: 'labelStatRoute',
-        labelStatLidar: 'labelStatLidar',
-        labelStatUptime: 'labelStatUptime',
-        labelStatSpeed: 'labelStatSpeed',
-        labelStatPose: 'labelStatPose',
-        liveVideoTitle: 'liveVideoTitle',
-        manualDriveTitle: 'manualDriveTitle',
-        buttonForward: 'buttonForward',
-        buttonLeft: 'buttonLeft',
-        buttonStop: 'buttonStop',
-        buttonRight: 'buttonRight',
-        buttonBackward: 'buttonBackward',
-        bucketControlTitle: 'bucketControlTitle',
-        buttonWallDown: 'buttonWallDown',
-        buttonWallUp: 'buttonWallUp',
-        buttonTimedTest: 'buttonTimedTest',
-        buttonCollect: 'buttonCollect',
-        slamRouteTitle: 'slamRouteTitle',
-        buttonRecordRoute: 'buttonRecordRoute',
-        buttonStopRecord: 'buttonStopRecord',
-        buttonClearRoute: 'buttonClearRoute',
-        buttonRefresh: 'buttonRefresh',
-        systemLogTitle: 'systemLogTitle'
-      };
-      var id;
-      for (id in textMap) {
-        if (Object.prototype.hasOwnProperty.call(textMap, id) && byId(id)) {
-          byId(id).textContent = t(textMap[id]);
-        }
+    function setLog(text) {
+      var logBox = byId('logBox');
+      if (logBox) {
+        logBox.textContent = text || '';
       }
-      if (byId('lidarHint')) byId('lidarHint').textContent = t('lidarHint');
-      if (byId('cameraHint')) byId('cameraHint').textContent = t('cameraHint');
-      if (byId('drivePcaHint')) byId('drivePcaHint').textContent = t('drivePcaHint');
-      if (byId('servoPcaHint')) byId('servoPcaHint').textContent = t('servoPcaHint');
-      if (byId('modelHint')) byId('modelHint').textContent = t('modelHint');
-      if (byId('videoOverlay')) byId('videoOverlay').textContent = t('cameraWaiting');
-      updateModeNote();
-      updateModelSelectEnabled();
-      updateBucketLabels();
     }
 
-    function updateBucketLabels() {
-      var buttons = document.querySelectorAll('button');
-      var i;
-      for (i = 0; i < buttons.length; i += 1) {
-        if (buttons[i].getAttribute('onclick') === "bucket('scoop_down')") buttons[i].textContent = t('scoopDown');
-        if (buttons[i].getAttribute('onclick') === "bucket('scoop_up')") buttons[i].textContent = t('scoopUp');
+    function setFetchError(error) {
+      var details = 'request failed';
+      if (error) {
+        if (typeof error === 'string') {
+          details = error;
+        } else if (error.message) {
+          details = error.message;
+        }
       }
+      var hero = byId('heroStatus');
+      if (hero) {
+        hero.textContent = 'Ошибка: ' + details;
+        hero.style.background = 'rgba(255,107,107,0.15)';
+      }
+      setLog('Ошибка: ' + details);
     }
 
     function updateModeNote() {
       var modeNote = byId('modeNote');
       var runMode = byId('run_mode');
-      if (!modeNote || !runMode) return;
-      modeNote.textContent = runMode.value === '1' ? t('modeManualNote') : t('modeAutopilotNote');
+      if (!modeNote || !runMode) {
+        return;
+      }
+      if (runMode.value === '1') {
+        modeNote.textContent = 'Ручной режим: кнопки и клавиши управления активируются после старта.';
+      } else {
+        modeNote.textContent = 'Автопилот: LiDAR, камера и детектор запускаются вместе.';
+      }
     }
 
     function updateModelSelectEnabled() {
       var source = byId('yolo_choice');
       var modelSelect = byId('selected_model_name');
-      if (source && modelSelect) modelSelect.disabled = source.value !== '2';
+      if (source && modelSelect) {
+        modelSelect.disabled = source.value !== '2';
+      }
     }
 
     function markFieldTouched(event) {
-      if (event && event.target && event.target.id) touchedFields[event.target.id] = true;
+      if (event && event.target && event.target.id) {
+        touchedFields[event.target.id] = true;
+      }
       updateModeNote();
       updateModelSelectEnabled();
     }
 
-    function clearTouchedFields() { touchedFields = {}; }
+    function clearTouchedFields() {
+      touchedFields = {};
+    }
 
     function bindConfigInputs() {
       var i;
       for (i = 0; i < configFieldIds.length; i += 1) {
         var element = byId(configFieldIds[i]);
-        if (!element) continue;
+        if (!element) {
+          continue;
+        }
         element.addEventListener('input', markFieldTouched);
         element.addEventListener('change', markFieldTouched);
       }
@@ -930,22 +653,34 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
 
     function setFieldValue(id, value, force) {
       var element = byId(id);
-      if (!element) return;
-      if (!force && touchedFields[id]) return;
-      if (value === null || typeof value === 'undefined') value = '';
+      if (!element) {
+        return;
+      }
+      if (!force && touchedFields[id]) {
+        return;
+      }
+      if (value === null || typeof value === 'undefined') {
+        value = '';
+      }
       element.value = value;
     }
 
     function updateModelOptions(models, selectedValue, force) {
       var select = byId('selected_model_name');
       var i;
-      if (!select) return;
-      if (!force && touchedFields.selected_model_name) return;
+      if (!select) {
+        return;
+      }
+      if (!force && touchedFields.selected_model_name) {
+        return;
+      }
       select.innerHTML = '';
+
       var autoOption = document.createElement('option');
       autoOption.value = '';
-      autoOption.textContent = models && models.length ? t('autoModel') : t('noModels');
+      autoOption.textContent = 'Автовыбор модели';
       select.appendChild(autoOption);
+
       if (models && models.length) {
         for (i = 0; i < models.length; i += 1) {
           var option = document.createElement('option');
@@ -953,7 +688,10 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
           option.textContent = String(models[i]);
           select.appendChild(option);
         }
+      } else {
+        autoOption.textContent = 'Локальные модели не найдены';
       }
+
       select.value = selectedValue || '';
       updateModelSelectEnabled();
     }
@@ -998,17 +736,25 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
     }
 
     function formatUptime(seconds) {
-      if (typeof seconds !== 'number') return '--';
+      if (typeof seconds !== 'number') {
+        return '--';
+      }
       var hrs = Math.floor(seconds / 3600);
       var mins = Math.floor((seconds % 3600) / 60);
       var secs = Math.floor(seconds % 60);
-      if (hrs > 0) return hrs + 'h ' + mins + 'm ' + secs + 's';
-      if (mins > 0) return mins + 'm ' + secs + 's';
+      if (hrs > 0) {
+        return hrs + 'h ' + mins + 'm ' + secs + 's';
+      }
+      if (mins > 0) {
+        return mins + 'm ' + secs + 's';
+      }
       return secs + 's';
     }
 
     function formatPose(pose) {
-      if (!pose || typeof pose !== 'object') return '--';
+      if (!pose || typeof pose !== 'object') {
+        return '--';
+      }
       var x = typeof pose.x === 'number' ? pose.x.toFixed(2) : '--';
       var y = typeof pose.y === 'number' ? pose.y.toFixed(2) : '--';
       var theta = typeof pose.theta === 'number' ? pose.theta.toFixed(2) : '--';
@@ -1016,16 +762,24 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
     }
 
     function updateDeviceHints(status) {
-      var serialText = t('lidarHint');
-      var cameraText = t('cameraHint');
-      var i2cText = t('drivePcaHint');
-      if (status.available_serial_ports && status.available_serial_ports.length) serialText = t('detectedSerial') + ' ' + status.available_serial_ports.join(', ');
-      if (status.available_camera_ports && status.available_camera_ports.length) cameraText = t('detectedVideo') + ' ' + status.available_camera_ports.join(', ');
-      if (status.available_i2c_addresses && status.available_i2c_addresses.length) i2cText = t('detectedI2C') + ' ' + status.available_i2c_addresses.join(', ');
+      var serialText = 'Detected serial ports will appear here.';
+      var cameraText = 'Detected video devices will appear here.';
+      var i2cText = 'Detected I2C addresses will appear here.';
+
+      if (status.available_serial_ports && status.available_serial_ports.length) {
+        serialText = 'Detected serial: ' + status.available_serial_ports.join(', ');
+      }
+      if (status.available_camera_ports && status.available_camera_ports.length) {
+        cameraText = 'Detected video: ' + status.available_camera_ports.join(', ');
+      }
+      if (status.available_i2c_addresses && status.available_i2c_addresses.length) {
+        i2cText = 'Detected I2C: ' + status.available_i2c_addresses.join(', ');
+      }
+
       if (byId('lidarHint')) byId('lidarHint').textContent = serialText;
       if (byId('cameraHint')) byId('cameraHint').textContent = cameraText;
       if (byId('drivePcaHint')) byId('drivePcaHint').textContent = i2cText;
-      if (byId('servoPcaHint')) byId('servoPcaHint').textContent = i2cText + '. ' + t('servoPcaHint');
+      if (byId('servoPcaHint')) byId('servoPcaHint').textContent = i2cText + '. Do not use 0x70 as a board address.';
     }
 
     function updateDriveControls(status) {
@@ -1036,64 +790,81 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
         var action = buttons[i].getAttribute('data-drive');
         buttons[i].disabled = !manualDriveEnabled && action !== 'stop';
       }
-      if (byId('manualHint')) byId('manualHint').textContent = manualDriveEnabled ? t('manualReady') : t('manualLocked');
+      if (byId('manualHint')) {
+        byId('manualHint').textContent = manualDriveEnabled
+          ? 'Hold a direction button or use WASD / arrow keys. Release to stop.'
+          : 'Manual drive becomes available after starting the robot in manual mode.';
+      }
     }
 
     function updateStatusUi(status, forceConfig) {
       var configForUi = {};
       var key;
-      var routeSummary = t('routeDisabled');
-      var modelSummary = t('routeDisabled');
+      var routeSummary = 'disabled';
+      var modelSummary = 'disabled';
       var logLines = [];
       var hero = byId('heroStatus');
       var video = byId('videoFrame');
       var overlay = byId('videoOverlay');
+
       status = status || {};
       lastStatus = status;
+
       for (key in defaultConfig) {
-        if (Object.prototype.hasOwnProperty.call(defaultConfig, key)) configForUi[key] = defaultConfig[key];
+        if (Object.prototype.hasOwnProperty.call(defaultConfig, key)) {
+          configForUi[key] = defaultConfig[key];
+        }
       }
       if (status.config) {
         for (key in status.config) {
-          if (Object.prototype.hasOwnProperty.call(status.config, key)) configForUi[key] = status.config[key];
+          if (Object.prototype.hasOwnProperty.call(status.config, key)) {
+            configForUi[key] = status.config[key];
+          }
         }
       }
       configForUi.available_models = status.available_models || [];
       configForUi.selected_model_name = status.selected_model_name || configForUi.selected_model_name || '';
       applyConfig(configForUi, !!forceConfig);
 
-      if (status.route_source_mode === 'slam') routeSummary = String(status.slam_route_points || 0) + ' ' + t('routePoints');
-      else if (status.route_source_mode === 'gps') routeSummary = status.route_fresh ? t('phoneRouteActive') : t('waitingPhoneRoute');
+      if (status.route_source_mode === 'slam') {
+        routeSummary = String(status.slam_route_points || 0) + ' pts';
+      } else if (status.route_source_mode === 'gps') {
+        routeSummary = status.route_fresh ? 'phone route active' : 'waiting for phone route';
+      }
 
-      if (status.selected_model_name) modelSummary = status.selected_model_name;
-      else if (configForUi.yolo_choice === '2') modelSummary = (status.available_models && status.available_models.length) ? t('autoModel') : t('noModels');
-      else if (configForUi.yolo_choice === '1') modelSummary = 'phone / none';
+      if (status.selected_model_name) {
+        modelSummary = status.selected_model_name;
+      } else if (configForUi.yolo_choice === '2') {
+        modelSummary = (status.available_models && status.available_models.length) ? 'auto model' : 'no models';
+      } else if (configForUi.yolo_choice === '1') {
+        modelSummary = 'phone / none';
+      }
 
       if (hero) {
-        hero.textContent = status.running ? (t('heroRunning') + ': ' + (status.mode || '--')) : t('heroStopped');
+        hero.textContent = status.running ? ('Running: ' + (status.mode || '--')) : 'Stopped';
         hero.style.background = status.running ? 'rgba(61,220,151,0.18)' : 'rgba(255,107,107,0.15)';
       }
-      if (byId('statRunning')) byId('statRunning').textContent = status.running ? t('online') : t('offline');
+      if (byId('statRunning')) byId('statRunning').textContent = status.running ? 'online' : 'offline';
       if (byId('statMode')) byId('statMode').textContent = status.mode || '--';
-      if (byId('statVideo')) byId('statVideo').textContent = status.video_stream_active ? status.stream_url : t('stopped');
-      if (byId('statTrash')) byId('statTrash').textContent = status.trash_summary || t('routeDisabled');
-      if (byId('statServoController')) byId('statServoController').textContent = status.bucket_servo_controller_connected ? t('connected') : t('disconnected');
+      if (byId('statVideo')) byId('statVideo').textContent = status.video_stream_active ? status.stream_url : 'stopped';
+      if (byId('statTrash')) byId('statTrash').textContent = status.trash_summary || 'disabled';
+      if (byId('statServoController')) byId('statServoController').textContent = status.bucket_servo_controller_connected ? 'connected' : 'disconnected';
       if (byId('statModel')) byId('statModel').textContent = modelSummary;
-      if (byId('statRouteSource')) byId('statRouteSource').textContent = status.route_source_mode || t('routeDisabled');
+      if (byId('statRouteSource')) byId('statRouteSource').textContent = status.route_source_mode || 'none';
       if (byId('statRoute')) byId('statRoute').textContent = routeSummary;
-      if (byId('statLidar')) byId('statLidar').textContent = status.lidar_running ? t('connected') : t('disconnected');
+      if (byId('statLidar')) byId('statLidar').textContent = status.lidar_running ? 'connected' : 'disconnected';
       if (byId('statUptime')) byId('statUptime').textContent = formatUptime(status.uptime_sec);
       if (byId('statSpeed')) byId('statSpeed').textContent = typeof status.current_speed === 'number' ? String(status.current_speed) : '--';
       if (byId('statPose')) byId('statPose').textContent = formatPose(status.slam_pose);
 
       if (status.message) logLines.push(status.message);
-      if (status.error) logLines.push(t('errorPrefix') + ': ' + status.error);
-      if (status.stream_url) logLines.push(t('streamPrefix') + ': ' + status.stream_url);
-      if (status.video_source) logLines.push(t('cameraPrefix') + ': ' + status.video_source);
-      if (status.video_error) logLines.push(t('videoPrefix') + ': ' + status.video_error);
-      if (status.i2c_error) logLines.push(t('i2cPrefix') + ': ' + status.i2c_error);
-      if (status.config_error) logLines.push(t('configPrefix') + ': ' + status.config_error);
-      if (status.route_debug) logLines.push(t('routePrefix') + ': ' + status.route_debug);
+      if (status.error) logLines.push('Error: ' + status.error);
+      if (status.stream_url) logLines.push('Stream: ' + status.stream_url);
+      if (status.video_source) logLines.push('Camera: ' + status.video_source);
+      if (status.video_error) logLines.push('Video: ' + status.video_error);
+      if (status.i2c_error) logLines.push('I2C: ' + status.i2c_error);
+      if (status.config_error) logLines.push('Config: ' + status.config_error);
+      if (status.route_debug) logLines.push('Route: ' + status.route_debug);
       setLog(logLines.join('\n'));
 
       if (video && overlay) {
@@ -1107,7 +878,6 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
           video.removeAttribute('src');
           video.setAttribute('data-current-src', '');
           overlay.style.display = 'flex';
-          overlay.textContent = t('cameraWaiting');
         }
       }
 
@@ -1119,28 +889,37 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
       var xhr = new XMLHttpRequest();
       xhr.open(method, url, true);
       xhr.setRequestHeader('Content-Type', 'application/json');
-      xhr.timeout = 3000;
+      xhr.timeout = 2000;
       xhr.onreadystatechange = function () {
         var data;
-        if (xhr.readyState !== 4) return;
+        if (xhr.readyState !== 4) {
+          return;
+        }
         if (xhr.status < 200 || xhr.status >= 300) {
           if (onError) onError(new Error('HTTP ' + xhr.status));
           return;
         }
-        try { data = xhr.responseText ? JSON.parse(xhr.responseText) : {}; }
-        catch (e) {
+        try {
+          data = xhr.responseText ? JSON.parse(xhr.responseText) : {};
+        } catch (e) {
           if (onError) onError(e);
           return;
         }
         if (onSuccess) onSuccess(data);
       };
-      xhr.ontimeout = function () { if (onError) onError(new Error('request timeout')); };
-      xhr.onerror = function () { if (onError) onError(new Error('network error')); };
+      xhr.ontimeout = function () {
+        if (onError) onError(new Error('request timeout'));
+      };
+      xhr.onerror = function () {
+        if (onError) onError(new Error('network error'));
+      };
       xhr.send(payload ? JSON.stringify(payload) : null);
     }
 
     function refreshStatus() {
-      requestJson('GET', '/api/status', null, function (data) { updateStatusUi(data, false); }, setFetchError);
+      requestJson('GET', '/api/status', null, function (data) {
+        updateStatusUi(data, false);
+      }, setFetchError);
     }
 
     function api(path, payload) {
@@ -1154,21 +933,34 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
     function startRobot() { api('/api/start', formPayload()); }
     function stopRobot() { api('/api/stop', {}); }
     function prepareBucket() { api('/api/bucket', { action: 'prepare' }); }
-    function drive(action) { api('/api/drive', { action: action, speed: parseInt(byId('manual_speed').value || '1400', 10) }); }
+    function drive(action) {
+      api('/api/drive', {
+        action: action,
+        speed: parseInt(byId('manual_speed').value || '1400', 10)
+      });
+    }
     function bucket(action) { api('/api/bucket', { action: action }); }
     function slamRoute(action) { api('/api/slam_route', { action: action }); }
 
     function engageDrive(action, keyName) {
-      if (!manualDriveEnabled && action !== 'stop') return;
-      if (activeDriveAction === action && activeDriveKey === keyName) return;
+      if (!manualDriveEnabled && action !== 'stop') {
+        return;
+      }
+      if (activeDriveAction === action && activeDriveKey === keyName) {
+        return;
+      }
       activeDriveAction = action;
       activeDriveKey = keyName || '';
       drive(action);
     }
 
     function releaseDrive(keyName) {
-      if (keyName && activeDriveKey && keyName !== activeDriveKey) return;
-      if (!activeDriveAction) return;
+      if (keyName && activeDriveKey && keyName !== activeDriveKey) {
+        return;
+      }
+      if (!activeDriveAction) {
+        return;
+      }
       activeDriveAction = null;
       activeDriveKey = '';
       drive('stop');
@@ -1197,38 +989,69 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
             });
             return;
           }
-          button.addEventListener('mousedown', function (event) { event.preventDefault(); engageDrive(action, ''); });
-          button.addEventListener('mouseup', function () { releaseDrive(''); });
-          button.addEventListener('mouseleave', function () { releaseDrive(''); });
-          button.addEventListener('touchstart', function (event) { event.preventDefault(); engageDrive(action, ''); }, { passive: false });
-          button.addEventListener('touchend', function () { releaseDrive(''); });
-          button.addEventListener('touchcancel', function () { releaseDrive(''); });
+          button.addEventListener('mousedown', function (event) {
+            event.preventDefault();
+            engageDrive(action, '');
+          });
+          button.addEventListener('mouseup', function () {
+            releaseDrive('');
+          });
+          button.addEventListener('mouseleave', function () {
+            releaseDrive('');
+          });
+          button.addEventListener('touchstart', function (event) {
+            event.preventDefault();
+            engageDrive(action, '');
+          }, { passive: false });
+          button.addEventListener('touchend', function () {
+            releaseDrive('');
+          });
+          button.addEventListener('touchcancel', function () {
+            releaseDrive('');
+          });
         }(buttons[i]));
       }
+
       document.addEventListener('keydown', function (event) {
         var tag;
         var action = keyToAction(event.keyCode);
-        if (!action || event.repeat) return;
+        if (!action || event.repeat) {
+          return;
+        }
         tag = document.activeElement ? document.activeElement.tagName : '';
-        if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+        if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') {
+          return;
+        }
         event.preventDefault();
-        if (action === 'stop') { releaseDrive('key-' + event.keyCode); return; }
+        if (action === 'stop') {
+          releaseDrive('key-' + event.keyCode);
+          return;
+        }
         engageDrive(action, 'key-' + event.keyCode);
       });
+
       document.addEventListener('keyup', function (event) {
-        if (!keyToAction(event.keyCode)) return;
+        if (!keyToAction(event.keyCode)) {
+          return;
+        }
         event.preventDefault();
         releaseDrive('key-' + event.keyCode);
       });
-      window.addEventListener('blur', function () { releaseDrive(''); });
-      document.addEventListener('visibilitychange', function () { if (document.hidden) releaseDrive(''); });
+
+      window.addEventListener('blur', function () {
+        releaseDrive('');
+      });
+      document.addEventListener('visibilitychange', function () {
+        if (document.hidden) {
+          releaseDrive('');
+        }
+      });
     }
 
     restoreLanguage();
     bindConfigInputs();
     bindDriveControls();
     applyConfig(defaultConfig, true);
-    applyTranslations();
     refreshStatus();
     setInterval(refreshStatus, 1200);
   </script>
@@ -2023,5 +1846,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-
 
