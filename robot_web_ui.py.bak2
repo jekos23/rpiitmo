@@ -18,7 +18,7 @@ DEFAULT_CONFIG = {
     "camera_stream_host": "0.0.0.0",
     "camera_stream_port": 5000,
     "drive_pca_address": "0x40",
-    "servo_pca_address": "0x42",
+    "servo_pca_address": "0x41",
     "bucket_servo_channel": 0,
     "map_choice": "3",
     "yolo_choice": "1",
@@ -30,20 +30,6 @@ DEFAULT_CONFIG = {
     "route_corridor_m": 3.0,
     "slam_route_record_step_m": 0.35,
 }
-
-
-def _safe_json_value(value):
-    if value is None or isinstance(value, (str, int, float, bool)):
-        return value
-    if isinstance(value, dict):
-        return {str(key): _safe_json_value(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple, set)):
-        return [_safe_json_value(item) for item in value]
-    try:
-        return float(value)
-    except Exception:
-        pass
-    return str(value)
 
 def _repair_mojibake_text(text: str) -> str:
     if not text:
@@ -1187,10 +1173,7 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
 
     async function refreshStatus() {
       try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 1800);
-        const response = await fetch('/api/status', { signal: controller.signal });
-        clearTimeout(timeoutId);
+        const response = await fetch('/api/status');
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`);
         }
@@ -1282,23 +1265,6 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
     bindConfigInputs();
     bindDriveControls();
     setLanguage(currentLanguage);
-    applyConfig({
-      lidar_port: '/dev/ttyUSB0',
-      drive_pca_address: '0x40',
-      servo_pca_address: '0x42',
-      bucket_servo_channel: 0,
-      camera_port: '/dev/video0',
-      camera_stream_port: 5000,
-      run_mode: '2',
-      auto_speed: 1500,
-      manual_speed: 1400,
-      yolo_choice: '1',
-      route_source_mode: 'none',
-      route_corridor_m: 3.0,
-      slam_route_record_step_m: 0.35,
-      available_models: [],
-      selected_model_name: '',
-    }, { force: true });
     refreshStatus();
     setInterval(refreshStatus, 1200);
   </script>
@@ -1349,8 +1315,8 @@ class RobotManager:
             normalized.get("drive_pca_address", "0x40")
         ).strip() or "0x40"
         normalized["servo_pca_address"] = str(
-            normalized.get("servo_pca_address", "0x42")
-        ).strip() or "0x42"
+            normalized.get("servo_pca_address", "0x41")
+        ).strip() or "0x41"
         try:
             normalized["drive_pca_address"] = hex(
                 robot._parse_i2c_address(
@@ -1363,12 +1329,12 @@ class RobotManager:
         try:
             normalized["servo_pca_address"] = hex(
                 robot._parse_i2c_address(
-                    normalized.get("servo_pca_address", "0x42"),
+                    normalized.get("servo_pca_address", "0x41"),
                     robot.SERVO_PCA_DEFAULT_ADDRESS,
                 )
             )
         except Exception:
-            normalized["servo_pca_address"] = "0x42"
+            normalized["servo_pca_address"] = "0x41"
         try:
             normalized["bucket_servo_channel"] = max(
                 0, min(15, int(normalized.get("bucket_servo_channel", 0)))
@@ -1909,28 +1875,6 @@ class RobotManager:
             if not i2c_status.get("error"):
                 i2c_status["error"] = f"I2C detection failed: {exc}"
 
-        try:
-            bucket_servo_controller_connected = robot.is_bucket_servo_controller_ready()
-        except Exception as exc:
-            bucket_servo_controller_connected = False
-            if not i2c_status.get("error"):
-                i2c_status["error"] = f"Servo controller status failed: {exc}"
-
-        try:
-            available_models = self._available_models()
-        except Exception:
-            available_models = []
-
-        try:
-            available_serial_ports = robot.find_serial_candidates()
-        except Exception:
-            available_serial_ports = []
-
-        try:
-            available_camera_ports = robot.find_camera_candidates()
-        except Exception:
-            available_camera_ports = []
-
         return {
             "running": self.running,
             "mode": self.mode,
@@ -1946,7 +1890,7 @@ class RobotManager:
             "video_stream_active": video_stream_active,
             "stream_url": stream_url,
             "bucket_arduino_connected": False,
-            "bucket_servo_controller_connected": bucket_servo_controller_connected,
+            "bucket_servo_controller_connected": robot.is_bucket_servo_controller_ready(),
             "trash_summary": trash_summary,
             "detector_debug": detector_debug,
             "selected_model_name": self.selected_model_name or config.get("selected_model_name", ""),
@@ -1962,9 +1906,9 @@ class RobotManager:
             "slam_route_recording": slam_route_status["recording"],
             "slam_route_points": slam_route_status["points_count"],
             "slam_pose": slam_route_status["pose"],
-            "available_models": available_models,
-            "available_serial_ports": available_serial_ports,
-            "available_camera_ports": available_camera_ports,
+            "available_models": self._available_models(),
+            "available_serial_ports": robot.find_serial_candidates(),
+            "available_camera_ports": robot.find_camera_candidates(),
             "available_i2c_addresses": available_i2c_addresses,
             "config_path": config_status.get("path", ""),
             "config_error": " | ".join(
@@ -1991,47 +1935,7 @@ def index():
 
 @app.get("/api/status")
 def api_status():
-    try:
-        return jsonify(_safe_json_value(manager.status()))
-    except Exception as exc:
-        fallback = {
-            "running": False,
-            "mode": "idle",
-            "mode_label": "Stopped",
-            "message": "Status fallback is active.",
-            "error": "",
-            "config": dict(DEFAULT_CONFIG),
-            "uptime_sec": None,
-            "video_stream_active": False,
-            "stream_url": "",
-            "bucket_arduino_connected": False,
-            "bucket_servo_controller_connected": False,
-            "trash_summary": "disabled",
-            "detector_debug": "",
-            "selected_model_name": "",
-            "current_mode": 0,
-            "current_speed": 0,
-            "lidar_running": False,
-            "route_source_mode": "none",
-            "route_enabled": False,
-            "route_within_corridor": True,
-            "route_distance_m": None,
-            "route_fresh": False,
-            "route_debug": "",
-            "slam_route_recording": False,
-            "slam_route_points": 0,
-            "slam_pose": None,
-            "available_models": [],
-            "available_serial_ports": [],
-            "available_camera_ports": [],
-            "available_i2c_addresses": [],
-            "config_path": "",
-            "config_error": f"api_status fallback: {exc}",
-            "video_source": "",
-            "video_error": "",
-            "i2c_error": "",
-        }
-        return jsonify(_safe_json_value(fallback))
+    return jsonify(manager.status())
 
 
 @app.post("/api/config")
