@@ -786,6 +786,16 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
       setLog(t('errorPrefix') + ': ' + details);
     }
 
+    function setUiBootError(error) {
+      var hero = byId('heroStatus');
+      var details = error || 'unknown ui error';
+      if (hero) {
+        hero.textContent = 'JS error: ' + details;
+        hero.style.background = 'rgba(255,107,107,0.15)';
+      }
+      setLog('JS error: ' + details);
+    }
+
     function setLanguage(lang) {
       var select = byId('languageSelect');
       currentLanguage = translations[lang] ? lang : 'ru';
@@ -1200,7 +1210,7 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
           button.addEventListener('mousedown', function (event) { event.preventDefault(); engageDrive(action, ''); });
           button.addEventListener('mouseup', function () { releaseDrive(''); });
           button.addEventListener('mouseleave', function () { releaseDrive(''); });
-          button.addEventListener('touchstart', function (event) { event.preventDefault(); engageDrive(action, ''); }, { passive: false });
+          button.addEventListener('touchstart', function (event) { event.preventDefault(); engageDrive(action, ''); });
           button.addEventListener('touchend', function () { releaseDrive(''); });
           button.addEventListener('touchcancel', function () { releaseDrive(''); });
         }(buttons[i]));
@@ -1224,13 +1234,22 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
       document.addEventListener('visibilitychange', function () { if (document.hidden) releaseDrive(''); });
     }
 
-    restoreLanguage();
-    bindConfigInputs();
-    bindDriveControls();
-    applyConfig(defaultConfig, true);
-    applyTranslations();
-    refreshStatus();
-    setInterval(refreshStatus, 1200);
+    window.onerror = function (message, source, lineno, colno) {
+      setUiBootError(String(message || 'unknown') + ' @' + String(lineno || 0) + ':' + String(colno || 0));
+      return false;
+    };
+
+    try {
+      restoreLanguage();
+      bindConfigInputs();
+      bindDriveControls();
+      applyConfig(defaultConfig, true);
+      applyTranslations();
+      refreshStatus();
+      setInterval(refreshStatus, 1200);
+    } catch (error) {
+      setUiBootError(error && error.message ? error.message : String(error));
+    }
   </script>
 </body>
 </html>
