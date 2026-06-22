@@ -243,8 +243,49 @@ HTML_PAGE = """<!doctype html>
       el.value = value === null || typeof value === 'undefined' ? '' : value;
     }
 
+    function setSelectOptions(id, values, selectedValue) {
+      var el = byId(id);
+      var i;
+      var option;
+      var safeValues = values || [];
+      if (!el) return;
+      el.innerHTML = '';
+      for (i = 0; i < safeValues.length; i += 1) {
+        option = document.createElement('option');
+        option.value = safeValues[i];
+        option.textContent = safeValues[i];
+        if (safeValues[i] === selectedValue) option.selected = true;
+        el.appendChild(option);
+      }
+      if (!safeValues.length) {
+        option = document.createElement('option');
+        option.value = '';
+        option.textContent = 'No models found';
+        el.appendChild(option);
+      }
+    }
+
     function setLog(text) {
       setText('logBox', text || 'No messages');
+    }
+
+    function getConfigPayload() {
+      return {
+        lidar_port: byId('lidar_port').value,
+        camera_port: byId('camera_port').value,
+        drive_pca_address: byId('drive_pca_address').value,
+        servo_pca_address: byId('servo_pca_address').value,
+        bucket_servo_channel: byId('bucket_servo_channel').value,
+        camera_stream_port: byId('camera_stream_port').value,
+        run_mode: byId('run_mode').value,
+        yolo_choice: byId('yolo_choice').value,
+        auto_speed: byId('auto_speed').value,
+        manual_speed: byId('manual_speed').value,
+        route_source_mode: byId('route_source_mode').value,
+        selected_model_name: byId('selected_model_name').value,
+        route_corridor_m: byId('route_corridor_m').value,
+        slam_route_record_step_m: byId('slam_route_record_step_m').value
+      };
     }
 
     function applyConfig(config) {
@@ -294,6 +335,7 @@ HTML_PAGE = """<!doctype html>
       var video = byId('videoFrame');
       status = status || {};
       setText('statusBox', status.running ? ('Running / ' + status.mode) : 'Stopped');
+      setSelectOptions('selected_model_name', status.available_models || [], (status.selected_model_name || (status.config || {}).selected_model_name || ''));
       applyConfig(status.config || {});
       setText('lidar_hint', status.available_serial_ports ? 'Serial: ' + status.available_serial_ports.join(', ') : 'No serial ports detected');
       setText('camera_hint', status.available_camera_ports ? 'Video: ' + status.available_camera_ports.join(', ') : 'No camera devices detected');
@@ -305,7 +347,8 @@ HTML_PAGE = """<!doctype html>
       if (status.i2c_error) lines.push('I2C: ' + status.i2c_error);
       if (status.video_error) lines.push('Video: ' + status.video_error);
       if (status.stream_url) lines.push('Stream: ' + status.stream_url);
-      setLog(lines.join('\n'));
+      if (status.config_path) lines.push('Config file: ' + status.config_path);
+      setLog(lines.join('\\n'));
       if (video) {
         if (status.stream_url) video.src = status.stream_url + '?t=' + (new Date().getTime());
         else video.removeAttribute('src');
@@ -326,19 +369,25 @@ HTML_PAGE = """<!doctype html>
       requestJson('POST', url, payload, updateStatus, onError);
     }
 
-    function saveConfig() { postAction('/api/config', {}); }
-    function startRobot() { postAction('/api/start', {}); }
+    function saveConfig() { postAction('/api/config', getConfigPayload()); }
+    function startRobot() { postAction('/api/start', getConfigPayload()); }
     function stopRobot() { postAction('/api/stop', {}); }
     function prepareBucket() { postAction('/api/bucket', { action: 'prepare' }); }
-    function drive(action) { postAction('/api/drive', { action: action, speed: 1400 }); }
+    function drive(action) { postAction('/api/drive', { action: action, speed: byId('manual_speed').value || 1400 }); }
     function bucket(action) { postAction('/api/bucket', { action: action }); }
     function slamRoute(action) { postAction('/api/slam_route', { action: action }); }
 
-    setText('statusBox', 'Main script OK');
-    if (document.addEventListener) {
-      document.addEventListener('DOMContentLoaded', refreshStatus, false);
+    function initUi() {
+      setText('statusBox', 'Main script OK');
+      refreshStatus();
+    }
+
+    if (document.readyState === 'loading' && document.addEventListener) {
+      document.addEventListener('DOMContentLoaded', initUi, false);
+    } else if (window.attachEvent) {
+      window.attachEvent('onload', initUi);
     } else {
-      window.onload = refreshStatus;
+      initUi();
     }
   </script>
 </body>
