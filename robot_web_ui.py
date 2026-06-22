@@ -226,50 +226,119 @@ HTML_PAGE = """<!doctype html>
   </script>
 
   <script>
-    var uiStarted = false;
-    var defaultConfig = { lidar_port: '/dev/ttyUSB0', camera_port: '/dev/video0', camera_stream_port: 5000, drive_pca_address: '0x40', servo_pca_address: '0x42', bucket_servo_channel: 0, run_mode: '2', auto_speed: 1500, manual_speed: 1400, yolo_choice: '1', selected_model_name: '', route_source_mode: 'none', route_corridor_m: 3.0, slam_route_record_step_m: 0.35 };
-    function byId(id) { return document.getElementById(id); }
-    function setText(id, text) { var el = byId(id); if (!el) return; if (typeof el.textContent !== 'undefined') el.textContent = text; else el.innerText = text; }
-    function setValue(id, value) { var el = byId(id); if (!el) return; el.value = value === null || typeof value === 'undefined' ? '' : value; }
-    function trimText(value) { if (value === null || typeof value === 'undefined') return ''; return String(value).replace(/^\s+|\s+$/g, ''); }
-    function formatUptime(seconds) { if (typeof seconds !== 'number') return '--'; var hrs = Math.floor(seconds / 3600); var mins = Math.floor((seconds % 3600) / 60); var secs = Math.floor(seconds % 60); if (hrs > 0) return hrs + 'h ' + mins + 'm ' + secs + 's'; if (mins > 0) return mins + 'm ' + secs + 's'; return secs + 's'; }
-    function formatPose(pose) { if (!pose) return '--'; var x = typeof pose.x === 'number' ? pose.x.toFixed(2) : '--'; var y = typeof pose.y === 'number' ? pose.y.toFixed(2) : '--'; var theta = typeof pose.theta === 'number' ? pose.theta.toFixed(2) : '--'; return x + ', ' + y + ', ' + theta; }
-    function fillSelect(selectId, options, selectedValue, emptyLabel) { var select = byId(selectId); var i; var option; if (!select) return; select.innerHTML = ''; option = document.createElement('option'); option.value = ''; option.appendChild(document.createTextNode(emptyLabel || '')); select.appendChild(option); if (options && options.length) { for (i = 0; i < options.length; i += 1) { option = document.createElement('option'); option.value = String(options[i]); option.appendChild(document.createTextNode(String(options[i]))); select.appendChild(option); } } select.value = selectedValue || ''; if (select.value !== (selectedValue || '') && selectedValue) { option = document.createElement('option'); option.value = String(selectedValue); option.appendChild(document.createTextNode(String(selectedValue))); select.appendChild(option); select.value = String(selectedValue); } }
-    function formPayload() { return { lidar_port: trimText(byId('lidar_port').value), camera_port: trimText(byId('camera_port').value), camera_stream_port: parseInt(byId('camera_stream_port').value || '5000', 10), drive_pca_address: trimText(byId('drive_pca_address').value), servo_pca_address: trimText(byId('servo_pca_address').value), bucket_servo_channel: parseInt(byId('bucket_servo_channel').value || '0', 10), run_mode: byId('run_mode').value, auto_speed: parseInt(byId('auto_speed').value || '1500', 10), manual_speed: parseInt(byId('manual_speed').value || '1400', 10), yolo_choice: byId('yolo_choice').value, selected_model_name: trimText(byId('selected_model_name').value), route_source_mode: byId('route_source_mode').value, route_corridor_m: parseFloat(byId('route_corridor_m').value || '3.0'), slam_route_record_step_m: parseFloat(byId('slam_route_record_step_m').value || '0.35') }; }
-    function applyConfig(config) { config = config || {}; setValue('lidar_port', config.lidar_port || defaultConfig.lidar_port); setValue('camera_port', config.camera_port || defaultConfig.camera_port); setValue('camera_stream_port', typeof config.camera_stream_port !== 'undefined' ? config.camera_stream_port : defaultConfig.camera_stream_port); setValue('drive_pca_address', config.drive_pca_address || defaultConfig.drive_pca_address); setValue('servo_pca_address', config.servo_pca_address || defaultConfig.servo_pca_address); setValue('bucket_servo_channel', typeof config.bucket_servo_channel !== 'undefined' ? config.bucket_servo_channel : defaultConfig.bucket_servo_channel); setValue('run_mode', config.run_mode || defaultConfig.run_mode); setValue('auto_speed', typeof config.auto_speed !== 'undefined' ? config.auto_speed : defaultConfig.auto_speed); setValue('manual_speed', typeof config.manual_speed !== 'undefined' ? config.manual_speed : defaultConfig.manual_speed); setValue('yolo_choice', config.yolo_choice || defaultConfig.yolo_choice); setValue('route_source_mode', config.route_source_mode || defaultConfig.route_source_mode); setValue('route_corridor_m', typeof config.route_corridor_m !== 'undefined' ? config.route_corridor_m : defaultConfig.route_corridor_m); setValue('slam_route_record_step_m', typeof config.slam_route_record_step_m !== 'undefined' ? config.slam_route_record_step_m : defaultConfig.slam_route_record_step_m); }
-    function setLog(text) { setText('logBox', text || 'No messages'); }
-    function requestJson(method, url, payload, onSuccess, onError) { var xhr = new XMLHttpRequest(); xhr.open(method, url, true); xhr.setRequestHeader('Content-Type', 'application/json'); xhr.onreadystatechange = function () { var data; if (xhr.readyState !== 4) return; if (xhr.status < 200 || xhr.status >= 300) { if (onError) onError('HTTP ' + xhr.status); return; } try { data = xhr.responseText ? JSON.parse(xhr.responseText) : {}; } catch (e) { if (onError) onError('JSON parse error'); return; } if (onSuccess) onSuccess(data); }; xhr.onerror = function () { if (onError) onError('Network error'); }; xhr.send(payload ? JSON.stringify(payload) : null); }
-    function updateStatus(status) { var config; var lines = []; var stats = []; var video = byId('videoFrame'); status = status || {}; config = status.config || {}; applyConfig(config); fillSelect('selected_model_name', status.available_models || [], status.selected_model_name || config.selected_model_name || '', 'Auto'); setText('lidar_hint', status.available_serial_ports && status.available_serial_ports.length ? 'Serial: ' + status.available_serial_ports.join(', ') : 'No serial ports detected'); setText('camera_hint', status.available_camera_ports && status.available_camera_ports.length ? 'Video: ' + status.available_camera_ports.join(', ') : 'No camera devices detected'); setText('i2c_hint', status.available_i2c_addresses && status.available_i2c_addresses.length ? 'I2C: ' + status.available_i2c_addresses.join(', ') : 'No I2C addresses detected'); setText('statusBox', status.running ? ('Running / ' + status.mode) : 'Stopped'); stats.push('LiDAR: ' + (status.lidar_running ? 'on' : 'off')); stats.push('Video: ' + (status.video_stream_active ? 'on' : 'off')); stats.push('Uptime: ' + formatUptime(status.uptime_sec)); stats.push('Speed: ' + (typeof status.current_speed === 'number' ? status.current_speed : '--')); stats.push('Pose: ' + formatPose(status.slam_pose)); stats.push('Trash: ' + (status.trash_summary || 'disabled')); stats.push('Servo PCA: ' + (status.bucket_servo_controller_connected ? 'connected' : 'disconnected')); setText('quickStats', stats.join(' | ')); if (status.message) lines.push(status.message); if (status.error) lines.push('Error: ' + status.error); if (status.config_error) lines.push('Config: ' + status.config_error); if (status.i2c_error) lines.push('I2C: ' + status.i2c_error); if (status.video_error) lines.push('Video: ' + status.video_error); if (status.video_source) lines.push('Camera: ' + status.video_source); if (status.route_debug) lines.push('Route: ' + status.route_debug); if (status.stream_url) lines.push('Stream: ' + status.stream_url); setLog(lines.join('\n')); if (video) { if (status.stream_url) video.src = status.stream_url + '?t=' + (new Date().getTime()); else video.removeAttribute('src'); } }
-    function onError(message) { setText('statusBox', 'UI error: ' + message); setLog('UI error: ' + message); }
-    function refreshStatus() { requestJson('GET', '/api/status', null, updateStatus, onError); }
-    function apiCall(url, payload) { requestJson('POST', url, payload, updateStatus, onError); }
-    function saveConfig() { apiCall('/api/config', formPayload()); }
-    function startRobot() { apiCall('/api/start', formPayload()); }
-    function stopRobot() { apiCall('/api/stop', {}); }
-    function prepareBucket() { apiCall('/api/bucket', { action: 'prepare' }); }
-    function drive(action) { apiCall('/api/drive', { action: action, speed: parseInt(byId('manual_speed').value || '1400', 10) }); }
-    function bucket(action) { apiCall('/api/bucket', { action: action }); }
-    function slamRoute(action) { apiCall('/api/slam_route', { action: action }); }
-    function initUi() {
-      if (uiStarted) return;
-      uiStarted = true;
-      try {
-        setText('statusBox', 'Initializing UI...');
-        applyConfig(defaultConfig);
-        fillSelect('selected_model_name', [], '', 'Auto');
-        refreshStatus();
-        setInterval(refreshStatus, 1500);
-      } catch (e) {
-        onError(e && e.message ? e.message : String(e));
+    function byId(id) {
+      return document.getElementById(id);
+    }
+
+    function setText(id, text) {
+      var el = byId(id);
+      if (!el) return;
+      if (typeof el.textContent !== 'undefined') el.textContent = text;
+      else el.innerText = text;
+    }
+
+    function setValue(id, value) {
+      var el = byId(id);
+      if (!el) return;
+      el.value = value === null || typeof value === 'undefined' ? '' : value;
+    }
+
+    function setLog(text) {
+      setText('logBox', text || 'No messages');
+    }
+
+    function applyConfig(config) {
+      config = config || {};
+      setValue('lidar_port', config.lidar_port || '');
+      setValue('camera_port', config.camera_port || '');
+      setValue('camera_stream_port', config.camera_stream_port || 5000);
+      setValue('drive_pca_address', config.drive_pca_address || '');
+      setValue('servo_pca_address', config.servo_pca_address || '');
+      setValue('bucket_servo_channel', config.bucket_servo_channel || 0);
+      setValue('run_mode', config.run_mode || '2');
+      setValue('auto_speed', config.auto_speed || 1500);
+      setValue('manual_speed', config.manual_speed || 1400);
+      setValue('yolo_choice', config.yolo_choice || '1');
+      setValue('route_source_mode', config.route_source_mode || 'none');
+      setValue('route_corridor_m', config.route_corridor_m || 3.0);
+      setValue('slam_route_record_step_m', config.slam_route_record_step_m || 0.35);
+    }
+
+    function requestJson(method, url, payload, onSuccess, onError) {
+      var xhr = new XMLHttpRequest();
+      xhr.open(method, url, true);
+      xhr.setRequestHeader('Content-Type', 'application/json');
+      xhr.onreadystatechange = function () {
+        var data;
+        if (xhr.readyState !== 4) return;
+        if (xhr.status < 200 || xhr.status >= 300) {
+          if (onError) onError('HTTP ' + xhr.status);
+          return;
+        }
+        try {
+          data = xhr.responseText ? JSON.parse(xhr.responseText) : {};
+        } catch (e) {
+          if (onError) onError('JSON parse error');
+          return;
+        }
+        if (onSuccess) onSuccess(data);
+      };
+      xhr.onerror = function () {
+        if (onError) onError('Network error');
+      };
+      xhr.send(payload ? JSON.stringify(payload) : null);
+    }
+
+    function updateStatus(status) {
+      var lines = [];
+      var video = byId('videoFrame');
+      status = status || {};
+      setText('statusBox', status.running ? ('Running / ' + status.mode) : 'Stopped');
+      applyConfig(status.config || {});
+      setText('lidar_hint', status.available_serial_ports ? 'Serial: ' + status.available_serial_ports.join(', ') : 'No serial ports detected');
+      setText('camera_hint', status.available_camera_ports ? 'Video: ' + status.available_camera_ports.join(', ') : 'No camera devices detected');
+      setText('i2c_hint', status.available_i2c_addresses ? 'I2C: ' + status.available_i2c_addresses.join(', ') : 'No I2C addresses detected');
+      setText('quickStats', 'LiDAR: ' + (status.lidar_running ? 'on' : 'off') + ' | Video: ' + (status.video_stream_active ? 'on' : 'off'));
+      if (status.message) lines.push(status.message);
+      if (status.error) lines.push('Error: ' + status.error);
+      if (status.config_error) lines.push('Config: ' + status.config_error);
+      if (status.i2c_error) lines.push('I2C: ' + status.i2c_error);
+      if (status.video_error) lines.push('Video: ' + status.video_error);
+      if (status.stream_url) lines.push('Stream: ' + status.stream_url);
+      setLog(lines.join('\n'));
+      if (video) {
+        if (status.stream_url) video.src = status.stream_url + '?t=' + (new Date().getTime());
+        else video.removeAttribute('src');
       }
     }
-    if (document.readyState === 'complete' || document.readyState === 'interactive') {
-      initUi();
-    } else if (document.addEventListener) {
-      document.addEventListener('DOMContentLoaded', initUi, false);
-      window.onload = initUi;
+
+    function onError(message) {
+      setText('statusBox', 'UI error: ' + message);
+      setLog('UI error: ' + message);
+    }
+
+    function refreshStatus() {
+      setText('statusBox', 'Requesting /api/status ...');
+      requestJson('GET', '/api/status', null, updateStatus, onError);
+    }
+
+    function postAction(url, payload) {
+      requestJson('POST', url, payload, updateStatus, onError);
+    }
+
+    function saveConfig() { postAction('/api/config', {}); }
+    function startRobot() { postAction('/api/start', {}); }
+    function stopRobot() { postAction('/api/stop', {}); }
+    function prepareBucket() { postAction('/api/bucket', { action: 'prepare' }); }
+    function drive(action) { postAction('/api/drive', { action: action, speed: 1400 }); }
+    function bucket(action) { postAction('/api/bucket', { action: action }); }
+    function slamRoute(action) { postAction('/api/slam_route', { action: action }); }
+
+    setText('statusBox', 'Main script OK');
+    if (document.addEventListener) {
+      document.addEventListener('DOMContentLoaded', refreshStatus, false);
     } else {
-      window.onload = initUi;
+      window.onload = refreshStatus;
     }
   </script>
 </body>
