@@ -17,7 +17,6 @@ DEFAULT_CONFIG = {
     "camera_port": "/dev/video0",
     "camera_stream_host": "0.0.0.0",
     "camera_stream_port": 5000,
-    "drive_pca_address": "0x40",
     "servo_pca_address": "0x41",
     "bucket_servo_channel": 0,
     "map_choice": "3",
@@ -338,9 +337,6 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
         <label for="lidar_port" id="labelLidarPort">LiDAR port</label>
         <input id="lidar_port" />
 
-        <label for="drive_pca_address" id="labelDrivePcaAddress">Drive PCA I2C address</label>
-        <input id="drive_pca_address" />
-
         <label for="servo_pca_address" id="labelServoPcaAddress">Servo PCA I2C address</label>
         <input id="servo_pca_address" />
 
@@ -495,7 +491,6 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
     let lastStatus = null;
     const translations = {
       ru: {
-        drive_pca_address: 'I2C адрес PCA моторов',
         servo_pca_address: 'I2C адрес PCA сервы',
         bucket_servo_channel: 'Канал сервопривода ковша',
         bucket_servo_controller: 'Контроллер сервы ковша',
@@ -594,7 +589,6 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
         trash_at: 'мусор под углом',
       },
       en: {
-        drive_pca_address: 'Drive PCA I2C address',
         hero_title: 'Robot Control Station',
         hero_subtitle: 'Start the robot, watch the camera stream, and switch between autopilot and manual control from any device in your LAN.',
         launch_settings: 'Launch Settings',
@@ -697,7 +691,6 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
     const touchedFields = new Set();
     const configFieldIds = [
       'lidar_port',
-      'drive_pca_address',
       'servo_pca_address',
       'bucket_servo_channel',
       'camera_port',
@@ -755,7 +748,6 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
         heroSubtitle: 'hero_subtitle',
         launchSettingsTitle: 'launch_settings',
         labelLidarPort: 'lidar_port',
-        labelDrivePcaAddress: 'drive_pca_address',
         labelServoPcaAddress: 'servo_pca_address',
         labelBucketServoChannel: 'bucket_servo_channel',
         labelCameraPort: 'camera_port',
@@ -911,7 +903,6 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
     function formPayload() {
       return {
         lidar_port: document.getElementById('lidar_port').value.trim(),
-        drive_pca_address: document.getElementById('drive_pca_address').value.trim(),
         servo_pca_address: document.getElementById('servo_pca_address').value.trim(),
         bucket_servo_channel: parseInt(document.getElementById('bucket_servo_channel').value || '0', 10),
         camera_port: document.getElementById('camera_port').value.trim(),
@@ -930,7 +921,6 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
     function applyConfig(config, { force = false } = {}) {
       if (!config) return;
       setFieldValue('lidar_port', config.lidar_port || '', force);
-      setFieldValue('drive_pca_address', config.drive_pca_address || '0x40', force);
       setFieldValue('servo_pca_address', config.servo_pca_address || '0x41', force);
       setFieldValue('bucket_servo_channel', config.bucket_servo_channel ?? 0, force);
       setFieldValue('camera_port', config.camera_port || '', force);
@@ -1063,9 +1053,6 @@ HTML_PAGE = _repair_mojibake_block("""<!doctype html>
         status.message || '',
         status.error ? `${t('error_prefix')}: ${status.error}` : '',
         status.stream_url ? `${t('stream_prefix')}: ${status.stream_url}` : '',
-        status.video_source ? `Camera: ${status.video_source}` : '',
-        status.video_error ? `${t('error_prefix')}: ${status.video_error}` : '',
-        status.config_error ? `${t('error_prefix')}: ${status.config_error}` : '',
         status.detector_debug ? `${t('detector_prefix')}: ${status.detector_debug}` : '',
         status.route_debug ? `${t('route_prefix')}: ${status.route_debug}` : '',
       ].filter(Boolean);
@@ -1267,16 +1254,6 @@ class RobotManager:
         normalized.pop("arduino_boot_wait_sec", None)
         normalized["lidar_port"] = str(normalized.get("lidar_port", "")).strip()
         normalized["camera_port"] = str(normalized.get("camera_port", "")).strip()
-        if normalized["camera_port"]:
-            try:
-                normalized["camera_port"] = robot.resolve_camera_port(
-                    normalized["camera_port"]
-                )
-            except Exception:
-                pass
-        normalized["drive_pca_address"] = str(
-            normalized.get("drive_pca_address", "0x40")
-        ).strip() or "0x40"
         normalized["servo_pca_address"] = str(
             normalized.get("servo_pca_address", "0x41")
         ).strip() or "0x41"
@@ -1289,29 +1266,14 @@ class RobotManager:
         normalized["camera_stream_host"] = str(
             normalized.get("camera_stream_host", "0.0.0.0")
         ).strip() or "0.0.0.0"
-        try:
-            normalized["camera_stream_port"] = int(
-                normalized.get("camera_stream_port", 5000)
-            )
-        except (TypeError, ValueError):
-            normalized["camera_stream_port"] = 5000
-        normalized["camera_stream_port"] = max(
-            1,
-            min(65535, normalized["camera_stream_port"]),
+        normalized["camera_stream_port"] = int(
+            normalized.get("camera_stream_port", 5000)
         )
         normalized["map_choice"] = str(normalized.get("map_choice", "3"))
         normalized["yolo_choice"] = str(normalized.get("yolo_choice", "1"))
         normalized["run_mode"] = str(normalized.get("run_mode", "2"))
-        try:
-            normalized["auto_speed"] = int(normalized.get("auto_speed", 1500))
-        except (TypeError, ValueError):
-            normalized["auto_speed"] = 1500
-        normalized["auto_speed"] = max(0, min(4095, normalized["auto_speed"]))
-        try:
-            normalized["manual_speed"] = int(normalized.get("manual_speed", 1400))
-        except (TypeError, ValueError):
-            normalized["manual_speed"] = 1400
-        normalized["manual_speed"] = max(0, min(4095, normalized["manual_speed"]))
+        normalized["auto_speed"] = int(normalized.get("auto_speed", 1500))
+        normalized["manual_speed"] = int(normalized.get("manual_speed", 1400))
         normalized["route_source_mode"] = str(
             normalized.get("route_source_mode", "none")
         ).strip().lower()
@@ -1342,17 +1304,8 @@ class RobotManager:
             config = self._normalize_config(payload)
             robot.global_config = dict(config)
             robot.save_config(config)
-            config_status = (
-                robot.get_config_status()
-                if hasattr(robot, "get_config_status")
-                else {"error": ""}
-            )
-            if config_status.get("error"):
-                self.message = "Configuration save failed."
-                self.error = str(config_status.get("error"))
-            else:
-                self.message = "Configuration saved."
-                self.error = ""
+            self.message = "Configuration saved."
+            self.error = ""
             return self.status()
 
     def _available_models(self):
@@ -1492,10 +1445,12 @@ class RobotManager:
 
             try:
                 robot.start_video_streamer(config)
-                bucket_controller_ready = robot.init_bucket_servo_controller(config)
-                if bucket_controller_ready:
-                    robot.move_bucket_wall_to_search_position()
-                    robot.set_servo_bucket(down=True)
+
+                if not robot.init_bucket_servo_controller(config):
+                    raise RuntimeError("Failed to connect to bucket servo PCA9685 controller.")
+
+                robot.move_bucket_wall_to_search_position()
+                robot.set_servo_bucket(down=True)
 
                 detector = self._build_detector(config)
                 driver = robot.LD06Driver(port=config["lidar_port"])
@@ -1542,12 +1497,6 @@ class RobotManager:
                     self._notify_status(
                         "Робот готов.\nРежим: ручное управление через веб-интерфейс.",
                         dedupe_key="robot_started_manual",
-                    )
-
-                if not bucket_controller_ready:
-                    self.message += (
-                        " Bucket servo PCA9685 is unavailable. "
-                        "The web UI and camera can still work, but bucket controls are disabled."
                     )
 
             except Exception as exc:
@@ -1710,16 +1659,6 @@ class RobotManager:
     def status(self) -> Dict[str, Any]:
         config = self.current_config()
         detector = self.detector
-        config_status = (
-            robot.get_config_status()
-            if hasattr(robot, "get_config_status")
-            else {"path": "", "error": ""}
-        )
-        video_status = (
-            robot.get_video_streamer_status()
-            if hasattr(robot, "get_video_streamer_status")
-            else {"active": False, "source": config.get("camera_port", ""), "error": ""}
-        )
         route_state = robot.get_route_state(detector)
         slam_route_status = robot.get_slam_route_status()
         trash_summary = "disabled"
@@ -1743,7 +1682,9 @@ class RobotManager:
 
         stream_port = int(config.get("camera_stream_port", 5000))
         stream_url = f"http://{request.host.split(':')[0]}:{stream_port}/video_feed"
-        video_stream_active = bool(video_status.get("active"))
+        video_stream_active = bool(
+            robot.video_streamer_process and robot.video_streamer_process.poll() is None
+        )
         if not video_stream_active:
             stream_url = ""
 
@@ -1796,10 +1737,6 @@ class RobotManager:
             "slam_route_points": slam_route_status["points_count"],
             "slam_pose": slam_route_status["pose"],
             "available_models": self._available_models(),
-            "config_path": config_status.get("path", ""),
-            "config_error": config_status.get("error", ""),
-            "video_source": video_status.get("source", ""),
-            "video_error": video_status.get("error", ""),
         }
 
 

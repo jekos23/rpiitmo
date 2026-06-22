@@ -9,7 +9,6 @@ import json
 import os
 import glob
 import subprocess
-import tempfile
 
 from ld06_driver import LD06Driver
 from Algorithm.OnlineFastSlam import OnlineFastSlam
@@ -25,32 +24,12 @@ except ImportError:
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_FILE = os.path.join(SCRIPT_DIR, "config.json")
-config_runtime_error = ""
-
-
-def _set_config_runtime_error(message):
-    global config_runtime_error
-    config_runtime_error = str(message or "").strip()
-
-
-def get_config_status():
-    return {
-        "path": CONFIG_FILE,
-        "error": config_runtime_error,
-    }
-
-
 def load_config():
     if os.path.exists(CONFIG_FILE):
         try:
-            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            if isinstance(data, dict):
-                _set_config_runtime_error("")
-                return data
-            _set_config_runtime_error("config.json must contain a JSON object.")
-        except Exception as e:
-            _set_config_runtime_error(f"Failed to load config.json: {e}")
+            with open(CONFIG_FILE, "r") as f:
+                return json.load(f)
+        except: pass
     return {}
 
 def save_config(cfg):
@@ -61,28 +40,9 @@ def save_config(cfg):
     sanitized.pop("arduino_timeout_sec", None)
     sanitized.pop("arduino_boot_wait_sec", None)
     try:
-        os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
-        fd, temp_path = tempfile.mkstemp(
-            prefix="config.",
-            suffix=".json.tmp",
-            dir=os.path.dirname(CONFIG_FILE),
-        )
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
-                json.dump(sanitized, f, indent=4, ensure_ascii=False)
-                f.flush()
-                os.fsync(f.fileno())
-            os.replace(temp_path, CONFIG_FILE)
-        except Exception:
-            try:
-                os.unlink(temp_path)
-            except OSError:
-                pass
-            raise
-        _set_config_runtime_error("")
-    except Exception as e:
-        _set_config_runtime_error(f"Failed to save config.json: {e}")
-        print(f"[CONFIG] Failed to save config.json: {e}")
+        with open(CONFIG_FILE, "w") as f:
+            json.dump(sanitized, f, indent=4)
+    except: pass
     global_config = dict(sanitized)
 
 def find_serial_candidates():
@@ -434,8 +394,6 @@ bucket_arduino_reader_thread = None
 last_bucket_pot_value = None
 bucket_channel_warning_shown = False
 video_streamer_process = None
-video_streamer_last_error = ""
-video_streamer_last_source = ""
 bucket_wall_increase_direction_sign = None
 bucket_motor_current_speed = 0
 
@@ -2383,18 +2341,16 @@ def main():
         stop_video_streamer()
 
 def start_video_streamer(config):
-    global video_streamer_process, video_streamer_last_error, video_streamer_last_source
+    global video_streamer_process
 
     if video_streamer_process and video_streamer_process.poll() is None:
         print("[VIDEO] Видеостример уже запущен.")
         return
 
-    camera_port = resolve_camera_port(str(config.get("camera_port", "/dev/video0")).strip())
+    camera_port = config.get("camera_port", "/dev/video0")
     stream_host = config.get("camera_stream_host", "0.0.0.0")
     stream_port = int(config.get("camera_stream_port", 5000))
     script_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "video_streamer.py")
-    video_streamer_last_source = str(camera_port)
-    video_streamer_last_error = ""
 
     command = [
         sys.executable,
@@ -2417,23 +2373,6 @@ def start_video_streamer(config):
     except Exception as e:
         print(f"[VIDEO] Не удалось запустить видеостример: {e}")
         video_streamer_process = None
-
-def get_video_streamer_status():
-    active = bool(video_streamer_process and video_streamer_process.poll() is None)
-    error = ""
-    if not active:
-        error = video_streamer_last_error
-        if not error and video_streamer_last_source:
-            error = (
-                f"No live stream from {video_streamer_last_source}. "
-                "The selected /dev/videoX may be the wrong node for this camera."
-            )
-    return {
-        "active": active,
-        "source": video_streamer_last_source,
-        "error": error,
-    }
-
 
 def stop_video_streamer():
     global video_streamer_process
