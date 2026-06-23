@@ -125,15 +125,56 @@ def prompt_for_serial_port(label, saved_port=None, forbidden_ports=None):
 
         return port
 
-def find_camera_candidates():
-    return sorted(dict.fromkeys(glob.glob("/dev/video*")))
-
 def _read_text_if_exists(path):
     try:
         with open(path, "r", encoding="utf-8", errors="ignore") as handle:
             return handle.read().strip()
     except OSError:
         return None
+
+
+def _get_camera_node_index(port):
+    video_name = os.path.basename(str(port))
+    index_text = _read_text_if_exists(
+        os.path.join("/sys/class/video4linux", video_name, "index")
+    )
+    if index_text is None:
+        return None
+    try:
+        return int(index_text)
+    except (TypeError, ValueError):
+        return None
+
+
+def _get_camera_node_name(port):
+    video_name = os.path.basename(str(port))
+    return _read_text_if_exists(
+        os.path.join("/sys/class/video4linux", video_name, "name")
+    ) or ""
+
+
+def find_camera_candidates():
+    all_nodes = sorted(dict.fromkeys(glob.glob("/dev/video*")))
+    if not all_nodes:
+        return []
+
+    preferred_nodes = []
+    fallback_nodes = []
+
+    for port in all_nodes:
+        index_value = _get_camera_node_index(port)
+        name_value = _get_camera_node_name(port).lower()
+        if any(
+            token in name_value
+            for token in ("metadata", "codec", "isp", "stats", "raw", "subdev")
+        ):
+            continue
+        if index_value in (None, 0):
+            preferred_nodes.append(port)
+        else:
+            fallback_nodes.append(port)
+
+    return preferred_nodes or fallback_nodes or all_nodes
 
 def _normalize_camera_address(value):
     if not value:
@@ -204,7 +245,10 @@ def resolve_camera_port(camera_input):
 
     camera_input = camera_input.strip()
     if camera_input.startswith("/dev/video"):
-        return camera_input
+        if os.path.exists(camera_input):
+            return camera_input
+        candidates = find_camera_candidates()
+        return candidates[0] if candidates else camera_input
 
     normalized_address = _normalize_camera_address(camera_input)
     if not normalized_address:
