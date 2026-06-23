@@ -35,6 +35,7 @@ DEFAULT_CONFIG = {
     "drive_pca_address": "0x40",
     "servo_pca_address": "0x42",
     "bucket_servo_channel": 0,
+    "servo_down_angle": 93,
     "map_choice": "3",
     "yolo_choice": "1",
     "selected_model_name": "",
@@ -192,7 +193,8 @@ HTML_PAGE = """<!doctype html>
         <div class="field"><label for="camera_port">Camera port</label><input id="camera_port"><div id="camera_hint" class="hint"></div></div>
         <div class="field"><label for="drive_pca_address">Drive PCA address</label><input id="drive_pca_address"><div id="i2c_hint" class="hint"></div></div>
         <div class="field"><label for="servo_pca_address">Servo PCA address</label><input id="servo_pca_address"></div>
-        <div class="row"><div class="field"><label for="bucket_servo_channel">Bucket servo channel</label><input id="bucket_servo_channel" type="number"></div><div class="field"><label for="camera_stream_port">Camera stream port</label><input id="camera_stream_port" type="number"></div></div>
+        <div class="row"><div class="field"><label for="bucket_servo_channel">Bucket servo channel</label><input id="bucket_servo_channel" type="number"></div><div class="field"><label for="servo_down_angle">Bucket down angle</label><input id="servo_down_angle" type="number" min="0" max="180"></div></div>
+        <div class="row"><div class="field"><label for="camera_stream_port">Camera stream port</label><input id="camera_stream_port" type="number"></div><div class="field"></div></div>
         <div class="row"><div class="field"><label for="run_mode">Run mode</label><select id="run_mode"><option value="2">Autopilot</option><option value="1">Manual</option></select></div><div class="field"><label for="yolo_choice">YOLO</label><select id="yolo_choice"><option value="1">Phone / PC</option><option value="2">Local model</option><option value="3">Disabled</option></select></div></div>
         <div class="row"><div class="field"><label for="auto_speed">Autopilot speed</label><input id="auto_speed" type="number"></div><div class="field"><label for="manual_speed">Manual speed</label><input id="manual_speed" type="number"></div></div>
         <div class="row"><div class="field"><label for="route_source_mode">Route source</label><select id="route_source_mode"><option value="none">Disabled</option><option value="slam">SLAM</option><option value="gps">GPS</option></select></div><div class="field"><label for="selected_model_name">Model</label><select id="selected_model_name"></select></div></div>
@@ -278,6 +280,7 @@ HTML_PAGE = """<!doctype html>
         drive_pca_address: byId('drive_pca_address').value,
         servo_pca_address: byId('servo_pca_address').value,
         bucket_servo_channel: byId('bucket_servo_channel').value,
+        servo_down_angle: byId('servo_down_angle').value,
         camera_stream_port: byId('camera_stream_port').value,
         run_mode: byId('run_mode').value,
         yolo_choice: byId('yolo_choice').value,
@@ -298,6 +301,7 @@ HTML_PAGE = """<!doctype html>
       setValue('drive_pca_address', config.drive_pca_address || '');
       setValue('servo_pca_address', config.servo_pca_address || '');
       setValue('bucket_servo_channel', config.bucket_servo_channel || 0);
+      setValue('servo_down_angle', typeof config.servo_down_angle !== 'undefined' ? config.servo_down_angle : 93);
       setValue('run_mode', config.run_mode || '2');
       setValue('auto_speed', config.auto_speed || 1500);
       setValue('manual_speed', config.manual_speed || 1400);
@@ -465,6 +469,12 @@ class RobotManager:
             )
         except (TypeError, ValueError):
             normalized["bucket_servo_channel"] = 0
+        try:
+            normalized["servo_down_angle"] = max(
+                0, min(180, int(normalized.get("servo_down_angle", 93)))
+            )
+        except (TypeError, ValueError):
+            normalized["servo_down_angle"] = 93
         normalized["camera_stream_host"] = str(
             normalized.get("camera_stream_host", "0.0.0.0")
         ).strip() or "0.0.0.0"

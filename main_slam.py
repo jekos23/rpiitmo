@@ -289,6 +289,11 @@ def prompt_for_camera_port(saved_port=None):
         return resolved_port
 
 global_config = load_config()
+try:
+    if int(global_config.get("servo_down_angle", 90)) == 90:
+        global_config["servo_down_angle"] = 93
+except (TypeError, ValueError):
+    global_config["servo_down_angle"] = 93
 
 MOTOR_PCA_DEFAULT_ADDRESS = 0x40
 SERVO_PCA_DEFAULT_ADDRESS = 0x42
@@ -555,10 +560,11 @@ def set_motors(left_fwd, left_rev, right_fwd, right_rev):
     r_fwd_pwm = scale_speed(right_fwd)
     r_rev_pwm = scale_speed(right_rev)
 
-    for ch in LEFT_FWD_CHANNELS: pca.channels[ch].duty_cycle = l_fwd_pwm
-    for ch in LEFT_REV_CHANNELS: pca.channels[ch].duty_cycle = l_rev_pwm
-    for ch in RIGHT_FWD_CHANNELS: pca.channels[ch].duty_cycle = r_fwd_pwm
-    for ch in RIGHT_REV_CHANNELS: pca.channels[ch].duty_cycle = r_rev_pwm
+    # Drive direction is inverted for the current wheel wiring.
+    for ch in LEFT_FWD_CHANNELS: pca.channels[ch].duty_cycle = l_rev_pwm
+    for ch in LEFT_REV_CHANNELS: pca.channels[ch].duty_cycle = l_fwd_pwm
+    for ch in RIGHT_FWD_CHANNELS: pca.channels[ch].duty_cycle = r_rev_pwm
+    for ch in RIGHT_REV_CHANNELS: pca.channels[ch].duty_cycle = r_fwd_pwm
 
 def _legacy_set_servo_bucket(down=True):
     return set_servo_bucket(down=down, wait=True)
@@ -578,7 +584,7 @@ def _legacy_set_servo_bucket(down=True):
     
     # Р§РёС‚Р°РµРј РѕС‚РєР°Р»РёР±СЂРѕРІР°РЅРЅС‹Рµ СѓРіР»С‹ РёР· РєРѕРЅС„РёРіСѓСЂР°С†РёРё
     up_angle = global_config.get("servo_up_angle", 0)
-    down_angle = global_config.get("servo_down_angle", 90)
+    down_angle = global_config.get("servo_down_angle", 93)
     
     # Р—РЅР°С‡РµРЅРёСЏ СѓРіР»РѕРІ Р±РµСЂРµРј РёР· С„Р°Р№Р»Р° РєРѕРЅС„РёРіСѓСЂР°С†РёРё!
     if down:
@@ -713,7 +719,7 @@ def legacy_move_bucket_servo_to_angle_unused(target_angle, label, wait=True):
 
 def legacy_set_servo_bucket_via_arduino_unused(down=True, wait=True):
     up_angle = global_config.get("servo_up_angle", 0)
-    down_angle = global_config.get("servo_down_angle", 90)
+    down_angle = global_config.get("servo_down_angle", 93)
     target_angle = down_angle if down else up_angle
     label = "РћРџРЈРЎРљРђР®" if down else "РџРћР”РќРРњРђР®"
     return _move_bucket_servo_to_angle(target_angle, label, wait=wait)
@@ -837,7 +843,7 @@ def _move_bucket_servo_to_angle(target_angle, label, wait=True):
 
 def set_servo_bucket(down=True, wait=True):
     up_angle = global_config.get("servo_up_angle", 0)
-    down_angle = global_config.get("servo_down_angle", 90)
+    down_angle = global_config.get("servo_down_angle", 93)
     target_angle = down_angle if down else up_angle
     label = "LOWERING" if down else "RAISING"
     return _move_bucket_servo_to_angle(target_angle, label, wait=wait)
@@ -2266,7 +2272,7 @@ def main():
     except (TypeError, ValueError):
         config["bucket_servo_channel"] = BUCKET_SERVO_DEFAULT_CHANNEL
     config["servo_up_angle"] = 0
-    config["servo_down_angle"] = 90
+    config["servo_down_angle"] = 93
     config["bucket_wall_manual_speed"] = 4095
     config["bucket_motor_collect_speed"] = 4095
     config["bucket_motor_reverse_speed"] = -4095
