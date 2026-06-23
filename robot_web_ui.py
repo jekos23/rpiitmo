@@ -2,6 +2,8 @@ import argparse
 import os
 import threading
 import time
+import urllib.error
+import urllib.request
 from typing import Any, Dict, Optional
 
 from flask import Flask, Response, jsonify, request
@@ -967,8 +969,7 @@ class RobotManager:
                     f"route_fresh={route_state['route_fresh']}"
                 )
 
-        stream_port = int(config.get("camera_stream_port", 5000))
-        stream_url = f"http://{request.host.split(':')[0]}:{stream_port}/video_feed"
+        stream_url = "/video_feed_proxy"
         video_stream_active = bool(video_status.get("active"))
         if not video_stream_active:
             stream_url = ""
@@ -1079,6 +1080,37 @@ manager = RobotManager()
 @app.get("/")
 def index():
     return HTML_PAGE
+
+
+@app.get("/video_feed_proxy")
+def video_feed_proxy():
+    config = manager.current_config()
+    stream_port = int(config.get("camera_stream_port", 5000))
+    upstream_url = f"http://127.0.0.1:{stream_port}/video_feed"
+
+    try:
+        upstream = urllib.request.urlopen(upstream_url, timeout=5)
+    except urllib.error.URLError as exc:
+        return Response(f"Video proxy error: {exc}", status=502, mimetype="text/plain")
+
+    def generate():
+        try:
+            while True:
+                chunk = upstream.read(8192)
+                if not chunk:
+                    break
+                yield chunk
+        finally:
+            try:
+                upstream.close()
+            except Exception:
+                pass
+
+    content_type = upstream.headers.get(
+        "Content-Type",
+        "multipart/x-mixed-replace; boundary=frame",
+    )
+    return Response(generate(), mimetype=content_type)
 
 
 @app.get("/api/status")
