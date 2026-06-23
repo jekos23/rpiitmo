@@ -1091,7 +1091,19 @@ def video_feed_proxy():
     try:
         upstream = urllib.request.urlopen(upstream_url, timeout=5)
     except urllib.error.URLError as exc:
-        return Response(f"Video proxy error: {exc}", status=502, mimetype="text/plain")
+        try:
+            if hasattr(robot, "start_video_streamer"):
+                robot.start_video_streamer(config)
+                time.sleep(1.2)
+                upstream = urllib.request.urlopen(upstream_url, timeout=5)
+            else:
+                raise exc
+        except Exception as retry_exc:
+            return Response(
+                f"Video proxy error: {retry_exc}",
+                status=502,
+                mimetype="text/plain",
+            )
 
     def generate():
         try:
