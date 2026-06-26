@@ -587,8 +587,14 @@ class RobotManager:
                 "models",
                 model_name,
             )
+            detector_camera_source = (
+                f"http://127.0.0.1:{int(config.get('camera_stream_port', 5000))}/video_feed"
+            )
             self.selected_model_name = model_name
-            detector = robot.TrashDetector(model_path=model_path)
+            detector = robot.TrashDetector(
+                model_path=model_path,
+                camera_index=detector_camera_source,
+            )
             detector.start()
             return detector
 

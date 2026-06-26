@@ -2146,7 +2146,13 @@ def legacy_main_unused():
                 print("РћС€РёР±РєР° РІРІРѕРґР°.")
                 
         if selected_model:
-            detector = TrashDetector(model_path=selected_model)
+            detector_camera_source = (
+                f"http://127.0.0.1:{int(config.get('camera_stream_port', 5000))}/video_feed"
+            )
+            detector = TrashDetector(
+                model_path=selected_model,
+                camera_index=detector_camera_source,
+            )
             detector.start()
         else:
             print("[YOLO] РњРѕРґРµР»СЊ РЅРµ РІС‹Р±СЂР°РЅР°, РґРµС‚РµРєС‚РѕСЂ РјСѓСЃРѕСЂР° РѕС‚РєР»СЋС‡РµРЅ.")
@@ -2353,7 +2359,13 @@ def main():
                 print("РћС€РёР±РєР° РІРІРѕРґР°.")
 
         if selected_model:
-            detector = TrashDetector(model_path=selected_model)
+            detector_camera_source = (
+                f"http://127.0.0.1:{int(config.get('camera_stream_port', 5000))}/video_feed"
+            )
+            detector = TrashDetector(
+                model_path=selected_model,
+                camera_index=detector_camera_source,
+            )
             detector.start()
         else:
             print("[YOLO] РњРѕРґРµР»СЊ РЅРµ РІС‹Р±СЂР°РЅР°, РґРµС‚РµРєС‚РѕСЂ РјСѓСЃРѕСЂР° РѕС‚РєР»СЋС‡РµРЅ.")
