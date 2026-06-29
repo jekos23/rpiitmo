@@ -163,7 +163,7 @@ def main():
     )
     parser.add_argument("--camera", default="0", help="Camera source, e.g. 0 or /dev/video0")
     parser.add_argument("--host", default="0.0.0.0", help="Host for Flask server")
-    parser.add_argument("--port", type=int, default=5000, help="HTTP port for MJPEG stream")
+    parser.add_argument("--port", type=int, default=6767, help="HTTP port for MJPEG stream")
     args = parser.parse_args()
 
     print(f"[VIDEO] Opening camera: {args.camera}")

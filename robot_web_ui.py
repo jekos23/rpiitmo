@@ -45,6 +45,15 @@ DEFAULT_CONFIG = {
     "route_source_mode": "none",
     "route_corridor_m": 3.0,
     "slam_route_record_step_m": 0.35,
+    "bucket_wall_move_duration_sec": 2.0,
+    "bucket_servo_lower_pause_sec": 0.2,
+    "bucket_wall_lower_pause_sec": 0.2,
+    "bucket_collect_settle_sec": 0.2,
+    "bucket_motor_ramp_sec": 0.28,
+    "ultrasonic_trigger_pin": 23,
+    "ultrasonic_echo_pin": 24,
+    "ultrasonic_zero_distance_cm": 0.0,
+    "ultrasonic_full_distance_cm": 6.0,
 }
 
 
@@ -199,6 +208,13 @@ HTML_PAGE = """<!doctype html>
         <div class="row"><div class="field"><label for="auto_speed">Autopilot speed</label><input id="auto_speed" type="number"></div><div class="field"><label for="manual_speed">Manual speed</label><input id="manual_speed" type="number"></div></div>
         <div class="row"><div class="field"><label for="route_source_mode">Route source</label><select id="route_source_mode"><option value="none">Disabled</option><option value="slam">SLAM</option><option value="gps">GPS</option></select></div><div class="field"><label for="selected_model_name">Model</label><select id="selected_model_name"></select></div></div>
         <div class="row"><div class="field"><label for="route_corridor_m">Route corridor</label><input id="route_corridor_m" type="number" step="0.1"></div><div class="field"><label for="slam_route_record_step_m">SLAM step</label><input id="slam_route_record_step_m" type="number" step="0.05"></div></div>
+        <h3>Bucket timings</h3>
+        <div class="row"><div class="field"><label for="bucket_wall_move_duration_sec">Wall move time (sec)</label><input id="bucket_wall_move_duration_sec" type="number" step="0.1" min="0"></div><div class="field"><label for="bucket_motor_ramp_sec">Wall ramp time (sec)</label><input id="bucket_motor_ramp_sec" type="number" step="0.01" min="0"></div></div>
+        <div class="row"><div class="field"><label for="bucket_servo_lower_pause_sec">Pause after scoop down (sec)</label><input id="bucket_servo_lower_pause_sec" type="number" step="0.05" min="0"></div><div class="field"><label for="bucket_wall_lower_pause_sec">Pause after wall down (sec)</label><input id="bucket_wall_lower_pause_sec" type="number" step="0.05" min="0"></div></div>
+        <div class="row"><div class="field"><label for="bucket_collect_settle_sec">Settle after collect (sec)</label><input id="bucket_collect_settle_sec" type="number" step="0.05" min="0"></div><div class="field"></div></div>
+        <h3>Rear bin ultrasonic</h3>
+        <div class="row"><div class="field"><label for="ultrasonic_trigger_pin">Trigger GPIO (BCM)</label><input id="ultrasonic_trigger_pin" type="number" min="0"></div><div class="field"><label for="ultrasonic_echo_pin">Echo GPIO (BCM)</label><input id="ultrasonic_echo_pin" type="number" min="0"></div></div>
+        <div class="row"><div class="field"><label for="ultrasonic_zero_distance_cm">Empty-bin distance (cm)</label><input id="ultrasonic_zero_distance_cm" type="number" step="0.1" min="0"></div><div class="field"><label for="ultrasonic_full_distance_cm">Full-bin distance (cm)</label><input id="ultrasonic_full_distance_cm" type="number" step="0.1" min="0"></div></div>
         <div class="row"><button class="secondary" type="button" onclick="saveConfig()">Save config</button><button type="button" onclick="startRobot()">Start robot</button></div>
         <div class="row" style="margin-top:10px;"><button class="warn" type="button" onclick="prepareBucket()">Prepare bucket</button><button class="danger" type="button" onclick="stopRobot()">Stop robot</button></div>
       </div>
@@ -207,6 +223,7 @@ HTML_PAGE = """<!doctype html>
         <div class="panel"><h2>Video</h2><img id="videoFrame" class="video" alt="video"></div>
         <div class="panel"><h2>Manual drive</h2><div class="drive-grid"><button class="blank" type="button">.</button><button type="button" onclick="drive('forward')">Forward</button><button class="blank" type="button">.</button><button type="button" onclick="drive('left')">Left</button><button class="danger" type="button" onclick="drive('stop')">Stop</button><button type="button" onclick="drive('right')">Right</button><button class="blank" type="button">.</button><button type="button" onclick="drive('backward')">Backward</button><button class="blank" type="button">.</button></div></div>
         <div class="panel"><h3>Bucket</h3><div class="row"><button class="secondary" type="button" onclick="bucket('wall_down')">Wall down</button><button class="secondary" type="button" onclick="bucket('wall_up')">Wall up</button></div><div class="row" style="margin-top:10px;"><button class="secondary" type="button" onclick="bucket('scoop_down')">Scoop down</button><button class="secondary" type="button" onclick="bucket('scoop_up')">Scoop up</button></div><div class="row" style="margin-top:10px;"><button class="secondary" type="button" onclick="bucket('bucket_test')">Timed test</button><button type="button" onclick="bucket('collect')">Collect cycle</button></div></div>
+        <div class="panel"><h3>Rear bin fill</h3><div id="ultrasonicBox" class="log">Waiting for sensor...</div><div class="row" style="margin-top:10px;"><button class="secondary" type="button" onclick="refreshStatus()">Read sensor</button><button class="secondary" type="button" onclick="calibrateUltrasonicZero()">Calibrate empty bin</button></div></div>
         <div class="panel"><h3>SLAM route</h3><div class="row"><button class="secondary" type="button" onclick="slamRoute('start_record')">Record route</button><button class="secondary" type="button" onclick="slamRoute('stop_record')">Stop record</button></div><div class="row" style="margin-top:10px;"><button class="warn" type="button" onclick="slamRoute('clear')">Clear route</button><button class="secondary" type="button" onclick="refreshStatus()">Refresh</button></div></div>
         <div class="panel"><h2>Log</h2><div id="logBox" class="log">Waiting for status...</div></div>
       </div>
@@ -273,6 +290,12 @@ HTML_PAGE = """<!doctype html>
       setText('logBox', text || 'No messages');
     }
 
+    function formatNumber(value, digits) {
+      if (value === null || typeof value === 'undefined' || value === '') return '-';
+      if (typeof value === 'number') return value.toFixed(digits);
+      return value;
+    }
+
     function getConfigPayload() {
       return {
         lidar_port: byId('lidar_port').value,
@@ -289,7 +312,16 @@ HTML_PAGE = """<!doctype html>
         route_source_mode: byId('route_source_mode').value,
         selected_model_name: byId('selected_model_name').value,
         route_corridor_m: byId('route_corridor_m').value,
-        slam_route_record_step_m: byId('slam_route_record_step_m').value
+        slam_route_record_step_m: byId('slam_route_record_step_m').value,
+        bucket_wall_move_duration_sec: byId('bucket_wall_move_duration_sec').value,
+        bucket_servo_lower_pause_sec: byId('bucket_servo_lower_pause_sec').value,
+        bucket_wall_lower_pause_sec: byId('bucket_wall_lower_pause_sec').value,
+        bucket_collect_settle_sec: byId('bucket_collect_settle_sec').value,
+        bucket_motor_ramp_sec: byId('bucket_motor_ramp_sec').value,
+        ultrasonic_trigger_pin: byId('ultrasonic_trigger_pin').value,
+        ultrasonic_echo_pin: byId('ultrasonic_echo_pin').value,
+        ultrasonic_zero_distance_cm: byId('ultrasonic_zero_distance_cm').value,
+        ultrasonic_full_distance_cm: byId('ultrasonic_full_distance_cm').value
       };
     }
 
@@ -309,6 +341,15 @@ HTML_PAGE = """<!doctype html>
       setValue('route_source_mode', config.route_source_mode || 'none');
       setValue('route_corridor_m', config.route_corridor_m || 3.0);
       setValue('slam_route_record_step_m', config.slam_route_record_step_m || 0.35);
+      setValue('bucket_wall_move_duration_sec', typeof config.bucket_wall_move_duration_sec !== 'undefined' ? config.bucket_wall_move_duration_sec : 2.0);
+      setValue('bucket_servo_lower_pause_sec', typeof config.bucket_servo_lower_pause_sec !== 'undefined' ? config.bucket_servo_lower_pause_sec : 0.2);
+      setValue('bucket_wall_lower_pause_sec', typeof config.bucket_wall_lower_pause_sec !== 'undefined' ? config.bucket_wall_lower_pause_sec : 0.2);
+      setValue('bucket_collect_settle_sec', typeof config.bucket_collect_settle_sec !== 'undefined' ? config.bucket_collect_settle_sec : 0.2);
+      setValue('bucket_motor_ramp_sec', typeof config.bucket_motor_ramp_sec !== 'undefined' ? config.bucket_motor_ramp_sec : 0.28);
+      setValue('ultrasonic_trigger_pin', typeof config.ultrasonic_trigger_pin !== 'undefined' ? config.ultrasonic_trigger_pin : 23);
+      setValue('ultrasonic_echo_pin', typeof config.ultrasonic_echo_pin !== 'undefined' ? config.ultrasonic_echo_pin : 24);
+      setValue('ultrasonic_zero_distance_cm', typeof config.ultrasonic_zero_distance_cm !== 'undefined' ? config.ultrasonic_zero_distance_cm : 0.0);
+      setValue('ultrasonic_full_distance_cm', typeof config.ultrasonic_full_distance_cm !== 'undefined' ? config.ultrasonic_full_distance_cm : 6.0);
     }
 
     function requestJson(method, url, payload, onSuccess, onError) {
@@ -339,6 +380,9 @@ HTML_PAGE = """<!doctype html>
     function updateStatus(status) {
       var lines = [];
       var video = byId('videoFrame');
+      var ultrasonic = null;
+      var ultrasonicLines = [];
+      var quickStats = [];
       status = status || {};
       setText('statusBox', status.running ? ('Running / ' + status.mode) : 'Stopped');
       setSelectOptions('selected_model_name', status.available_models || [], (status.selected_model_name || (status.config || {}).selected_model_name || ''));
@@ -346,15 +390,28 @@ HTML_PAGE = """<!doctype html>
       setText('lidar_hint', status.available_serial_ports ? 'Serial: ' + status.available_serial_ports.join(', ') : 'No serial ports detected');
       setText('camera_hint', status.available_camera_ports ? 'Video: ' + status.available_camera_ports.join(', ') : 'No camera devices detected');
       setText('i2c_hint', status.available_i2c_addresses ? 'I2C: ' + status.available_i2c_addresses.join(', ') : 'No I2C addresses detected');
-      setText('quickStats', 'LiDAR: ' + (status.lidar_running ? 'on' : 'off') + ' | Video: ' + (status.video_stream_active ? 'on' : 'off'));
+      quickStats.push('LiDAR: ' + (status.lidar_running ? 'on' : 'off'));
+      quickStats.push('Video: ' + (status.video_stream_active ? 'on' : 'off'));
+      if (status.trash_summary) quickStats.push('Trash: ' + status.trash_summary);
+      ultrasonic = status.ultrasonic || {};
+      if (typeof ultrasonic.fill_percent === 'number') quickStats.push('Bin: ' + formatNumber(ultrasonic.fill_percent, 1) + '%');
+      setText('quickStats', quickStats.join(' | '));
       if (status.message) lines.push(status.message);
       if (status.error) lines.push('Error: ' + status.error);
       if (status.config_error) lines.push('Config: ' + status.config_error);
       if (status.i2c_error) lines.push('I2C: ' + status.i2c_error);
       if (status.video_error) lines.push('Video: ' + status.video_error);
+      if (status.ultrasonic_error) lines.push('Ultrasonic: ' + status.ultrasonic_error);
       if (status.stream_url) lines.push('Stream: ' + status.stream_url);
       if (status.config_path) lines.push('Config file: ' + status.config_path);
       setLog(lines.join('\\n'));
+      ultrasonicLines.push('Distance: ' + formatNumber(ultrasonic.distance_cm, 1) + ' cm');
+      ultrasonicLines.push('Fill: ' + (typeof ultrasonic.fill_percent === 'number' ? formatNumber(ultrasonic.fill_percent, 1) + '%' : '-'));
+      ultrasonicLines.push('Empty-bin distance: ' + formatNumber(ultrasonic.zero_distance_cm, 1) + ' cm');
+      ultrasonicLines.push('Full-bin distance: ' + formatNumber(ultrasonic.full_distance_cm, 1) + ' cm');
+      ultrasonicLines.push('Pins: trig ' + formatNumber(ultrasonic.trigger_pin, 0) + ' / echo ' + formatNumber(ultrasonic.echo_pin, 0));
+      if (ultrasonic.error) ultrasonicLines.push('Status: ' + ultrasonic.error);
+      setText('ultrasonicBox', ultrasonicLines.join('\\n'));
       if (video) {
         if (status.stream_url) video.src = status.stream_url + '?t=' + (new Date().getTime());
         else video.removeAttribute('src');
@@ -382,6 +439,7 @@ HTML_PAGE = """<!doctype html>
     function drive(action) { postAction('/api/drive', { action: action, speed: byId('manual_speed').value || 1400 }); }
     function bucket(action) { postAction('/api/bucket', { action: action }); }
     function slamRoute(action) { postAction('/api/slam_route', { action: action }); }
+    function calibrateUltrasonicZero() { postAction('/api/ultrasonic/calibrate_zero', getConfigPayload()); }
 
     function initUi() {
       setText('statusBox', 'Main script OK');
@@ -518,6 +576,60 @@ class RobotManager:
             )
         except (TypeError, ValueError):
             normalized["slam_route_record_step_m"] = 0.35
+        try:
+            normalized["bucket_wall_move_duration_sec"] = max(
+                0.0, float(normalized.get("bucket_wall_move_duration_sec", 2.0))
+            )
+        except (TypeError, ValueError):
+            normalized["bucket_wall_move_duration_sec"] = 2.0
+        try:
+            normalized["bucket_servo_lower_pause_sec"] = max(
+                0.0, float(normalized.get("bucket_servo_lower_pause_sec", 0.2))
+            )
+        except (TypeError, ValueError):
+            normalized["bucket_servo_lower_pause_sec"] = 0.2
+        try:
+            normalized["bucket_wall_lower_pause_sec"] = max(
+                0.0, float(normalized.get("bucket_wall_lower_pause_sec", 0.2))
+            )
+        except (TypeError, ValueError):
+            normalized["bucket_wall_lower_pause_sec"] = 0.2
+        try:
+            normalized["bucket_collect_settle_sec"] = max(
+                0.0, float(normalized.get("bucket_collect_settle_sec", 0.2))
+            )
+        except (TypeError, ValueError):
+            normalized["bucket_collect_settle_sec"] = 0.2
+        try:
+            normalized["bucket_motor_ramp_sec"] = max(
+                0.0, float(normalized.get("bucket_motor_ramp_sec", 0.28))
+            )
+        except (TypeError, ValueError):
+            normalized["bucket_motor_ramp_sec"] = 0.28
+        try:
+            normalized["ultrasonic_trigger_pin"] = max(
+                0, int(normalized.get("ultrasonic_trigger_pin", 23))
+            )
+        except (TypeError, ValueError):
+            normalized["ultrasonic_trigger_pin"] = 23
+        try:
+            normalized["ultrasonic_echo_pin"] = max(
+                0, int(normalized.get("ultrasonic_echo_pin", 24))
+            )
+        except (TypeError, ValueError):
+            normalized["ultrasonic_echo_pin"] = 24
+        try:
+            normalized["ultrasonic_zero_distance_cm"] = max(
+                0.0, float(normalized.get("ultrasonic_zero_distance_cm", 0.0))
+            )
+        except (TypeError, ValueError):
+            normalized["ultrasonic_zero_distance_cm"] = 0.0
+        try:
+            normalized["ultrasonic_full_distance_cm"] = max(
+                0.0, float(normalized.get("ultrasonic_full_distance_cm", 6.0))
+            )
+        except (TypeError, ValueError):
+            normalized["ultrasonic_full_distance_cm"] = 6.0
         normalized["selected_model_name"] = str(
             normalized.get("selected_model_name", "")
         ).strip()
@@ -542,6 +654,23 @@ class RobotManager:
             else:
                 self.message = "Configuration saved."
                 self.error = ""
+            return self.status()
+
+    def calibrate_ultrasonic_zero(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        with self.lock:
+            config = self._normalize_config(payload)
+            robot.global_config = dict(config)
+            robot.save_config(config)
+            try:
+                result = robot.calibrate_ultrasonic_zero_distance(config)
+                robot.global_config = dict(self.current_config())
+                self.message = str(
+                    result.get("message", "Ultrasonic empty-bin distance calibrated.")
+                )
+                self.error = ""
+            except Exception as exc:
+                self.message = "Ultrasonic calibration failed."
+                self.error = str(exc)
             return self.status()
 
     def _available_models(self):
@@ -859,10 +988,10 @@ class RobotManager:
                     self.message = "Wall lowered."
                 elif action == "scoop_up":
                     robot.set_servo_bucket(down=False, wait=True)
-                    self.message = "Scoop moved to 0 degrees."
+                    self.message = "Scoop moved to raised position."
                 elif action == "scoop_down":
                     robot.set_servo_bucket(down=True, wait=True)
-                    self.message = "Scoop moved to 90 degrees."
+                    self.message = "Scoop moved to lowered position."
                 elif action == "bucket_test":
                     robot.run_bucket_wall_timed_test()
                     self.message = "Bucket timed test finished."
@@ -942,6 +1071,22 @@ class RobotManager:
             )
         except Exception as exc:
             i2c_status = {"error": f"I2C status failed: {exc}"}
+        try:
+            ultrasonic_status = (
+                robot.get_ultrasonic_fill_status(config)
+                if hasattr(robot, "get_ultrasonic_fill_status")
+                else {"error": "", "distance_cm": None, "fill_percent": None}
+            )
+        except Exception as exc:
+            ultrasonic_status = {
+                "error": f"Ultrasonic status failed: {exc}",
+                "distance_cm": None,
+                "fill_percent": None,
+                "zero_distance_cm": config.get("ultrasonic_zero_distance_cm", 0.0),
+                "full_distance_cm": config.get("ultrasonic_full_distance_cm", 6.0),
+                "trigger_pin": config.get("ultrasonic_trigger_pin", 23),
+                "echo_pin": config.get("ultrasonic_echo_pin", 24),
+            }
         try:
             route_state = robot.get_route_state(detector)
         except Exception as exc:
@@ -1087,6 +1232,8 @@ class RobotManager:
             "video_source": video_status.get("source", ""),
             "video_error": video_status.get("error", ""),
             "i2c_error": i2c_status.get("error", ""),
+            "ultrasonic": ultrasonic_status,
+            "ultrasonic_error": ultrasonic_status.get("error", ""),
         }
 
 
@@ -1182,6 +1329,17 @@ def api_status():
             "video_source": "",
             "video_error": "",
             "i2c_error": "",
+            "ultrasonic": {
+                "enabled": True,
+                "trigger_pin": DEFAULT_CONFIG["ultrasonic_trigger_pin"],
+                "echo_pin": DEFAULT_CONFIG["ultrasonic_echo_pin"],
+                "distance_cm": None,
+                "zero_distance_cm": DEFAULT_CONFIG["ultrasonic_zero_distance_cm"],
+                "full_distance_cm": DEFAULT_CONFIG["ultrasonic_full_distance_cm"],
+                "fill_percent": None,
+                "error": "",
+            },
+            "ultrasonic_error": "",
         }
         return jsonify(_safe_json_value(fallback))
 
@@ -1190,6 +1348,12 @@ def api_status():
 def api_config():
     payload = request.get_json(silent=True) or {}
     return jsonify(manager.save_config(payload))
+
+
+@app.post("/api/ultrasonic/calibrate_zero")
+def api_ultrasonic_calibrate_zero():
+    payload = request.get_json(silent=True) or {}
+    return jsonify(manager.calibrate_ultrasonic_zero(payload))
 
 
 @app.post("/api/start")

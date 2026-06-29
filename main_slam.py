@@ -10,6 +10,10 @@ import os
 import glob
 import subprocess
 import tempfile
+try:
+    import RPi.GPIO as GPIO
+except ImportError:
+    GPIO = None
 
 from ld06_driver import LD06Driver
 from Algorithm.OnlineFastSlam import OnlineFastSlam
@@ -26,6 +30,9 @@ except ImportError:
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_FILE = os.path.join(SCRIPT_DIR, "config.json")
 config_runtime_error = ""
+ultrasonic_runtime_error = ""
+ultrasonic_gpio_signature = None
+ultrasonic_lock = threading.Lock()
 
 
 def _set_config_runtime_error(message):
@@ -37,6 +44,17 @@ def get_config_status():
     return {
         "path": CONFIG_FILE,
         "error": config_runtime_error,
+    }
+
+
+def _set_ultrasonic_runtime_error(message):
+    global ultrasonic_runtime_error
+    ultrasonic_runtime_error = str(message or "").strip()
+
+
+def get_ultrasonic_runtime_status():
+    return {
+        "error": ultrasonic_runtime_error,
     }
 
 
@@ -294,6 +312,168 @@ try:
         global_config["servo_down_angle"] = 93
 except (TypeError, ValueError):
     global_config["servo_down_angle"] = 93
+
+
+def _get_ultrasonic_trigger_pin(config=None):
+    config = config or global_config
+    try:
+        return int(config.get("ultrasonic_trigger_pin", 23))
+    except (TypeError, ValueError):
+        return 23
+
+
+def _get_ultrasonic_echo_pin(config=None):
+    config = config or global_config
+    try:
+        return int(config.get("ultrasonic_echo_pin", 24))
+    except (TypeError, ValueError):
+        return 24
+
+
+def _get_ultrasonic_zero_distance_cm(config=None):
+    config = config or global_config
+    try:
+        return max(0.0, float(config.get("ultrasonic_zero_distance_cm", 0.0)))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _get_ultrasonic_full_distance_cm(config=None):
+    config = config or global_config
+    try:
+        return max(0.0, float(config.get("ultrasonic_full_distance_cm", 6.0)))
+    except (TypeError, ValueError):
+        return 6.0
+
+
+def _init_ultrasonic_gpio(config=None):
+    global ultrasonic_gpio_signature
+
+    if GPIO is None:
+        raise RuntimeError("RPi.GPIO is unavailable.")
+
+    config = config or global_config
+    trigger_pin = _get_ultrasonic_trigger_pin(config)
+    echo_pin = _get_ultrasonic_echo_pin(config)
+
+    if trigger_pin <= 0 or echo_pin <= 0:
+        raise RuntimeError("Ultrasonic GPIO pins are not configured.")
+    if trigger_pin == echo_pin:
+        raise RuntimeError("Ultrasonic trigger and echo pins must be different.")
+
+    signature = (trigger_pin, echo_pin)
+    if ultrasonic_gpio_signature == signature:
+        return trigger_pin, echo_pin
+
+    GPIO.setwarnings(False)
+    GPIO.setmode(GPIO.BCM)
+    GPIO.setup(trigger_pin, GPIO.OUT, initial=GPIO.LOW)
+    GPIO.setup(echo_pin, GPIO.IN)
+    time.sleep(0.05)
+    ultrasonic_gpio_signature = signature
+    return trigger_pin, echo_pin
+
+
+def measure_ultrasonic_distance_cm(config=None, samples=3, timeout_sec=0.03):
+    config = config or global_config
+    trigger_pin, echo_pin = _init_ultrasonic_gpio(config)
+    distances = []
+    sample_count = max(1, int(samples))
+    timeout_sec = max(0.005, float(timeout_sec))
+
+    with ultrasonic_lock:
+        for _ in range(sample_count):
+            GPIO.output(trigger_pin, GPIO.LOW)
+            time.sleep(0.0002)
+            GPIO.output(trigger_pin, GPIO.HIGH)
+            time.sleep(0.00001)
+            GPIO.output(trigger_pin, GPIO.LOW)
+
+            wait_deadline = time.perf_counter() + timeout_sec
+            pulse_start = None
+            while time.perf_counter() < wait_deadline:
+                if GPIO.input(echo_pin):
+                    pulse_start = time.perf_counter()
+                    break
+            if pulse_start is None:
+                raise RuntimeError("Ultrasonic echo start timeout.")
+
+            pulse_deadline = time.perf_counter() + timeout_sec
+            pulse_end = pulse_start
+            while time.perf_counter() < pulse_deadline:
+                if not GPIO.input(echo_pin):
+                    pulse_end = time.perf_counter()
+                    break
+                pulse_end = time.perf_counter()
+            if pulse_end <= pulse_start:
+                raise RuntimeError("Ultrasonic echo end timeout.")
+
+            distances.append((pulse_end - pulse_start) * 17150.0)
+            time.sleep(0.02)
+
+    distances.sort()
+    _set_ultrasonic_runtime_error("")
+    return round(distances[len(distances) // 2], 1)
+
+
+def get_ultrasonic_fill_status(config=None):
+    config = config or global_config
+    trigger_pin = _get_ultrasonic_trigger_pin(config)
+    echo_pin = _get_ultrasonic_echo_pin(config)
+    zero_distance_cm = _get_ultrasonic_zero_distance_cm(config)
+    full_distance_cm = _get_ultrasonic_full_distance_cm(config)
+
+    status = {
+        "enabled": True,
+        "trigger_pin": trigger_pin,
+        "echo_pin": echo_pin,
+        "distance_cm": None,
+        "zero_distance_cm": zero_distance_cm,
+        "full_distance_cm": full_distance_cm,
+        "fill_percent": None,
+        "error": "",
+    }
+
+    try:
+        distance_cm = measure_ultrasonic_distance_cm(config)
+        status["distance_cm"] = distance_cm
+
+        if zero_distance_cm > full_distance_cm:
+            fill_percent = (
+                (zero_distance_cm - distance_cm)
+                / max(0.1, zero_distance_cm - full_distance_cm)
+                * 100.0
+            )
+            status["fill_percent"] = round(max(0.0, min(100.0, fill_percent)), 1)
+        else:
+            status["error"] = (
+                "Set empty-bin distance above full-bin distance to calculate fill percent."
+            )
+    except Exception as exc:
+        status["distance_cm"] = None
+        status["fill_percent"] = None
+        status["error"] = str(exc)
+        _set_ultrasonic_runtime_error(exc)
+
+    if status["error"]:
+        _set_ultrasonic_runtime_error(status["error"])
+
+    return status
+
+
+def calibrate_ultrasonic_zero_distance(config=None):
+    global global_config
+
+    config = dict(config or global_config)
+    measured_distance_cm = measure_ultrasonic_distance_cm(config)
+    config["ultrasonic_zero_distance_cm"] = round(measured_distance_cm, 1)
+    save_config(config)
+    global_config = dict(config)
+    status = get_ultrasonic_fill_status(config)
+    status["message"] = (
+        f"Empty-bin distance calibrated to {config['ultrasonic_zero_distance_cm']:.1f} cm."
+    )
+    return status
 
 MOTOR_PCA_DEFAULT_ADDRESS = 0x40
 SERVO_PCA_DEFAULT_ADDRESS = 0x42
