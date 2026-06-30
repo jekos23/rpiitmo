@@ -2205,10 +2205,19 @@ def autonomous_loop(driver, speed, detector=None):
                 else:
                     # Keep driving toward the trash until it enters the collection zone.
                     if active_trash_angle > 10:
+                        print(
+                            f"[AUTOPILOT] Trash is on the RIGHT ({active_trash_angle:.1f} deg). Turning right."
+                        )
                         set_motors(0, speed//2, speed//2, 0) # turn toward trash on the right
                     elif active_trash_angle < -10:
+                        print(
+                            f"[AUTOPILOT] Trash is on the LEFT ({active_trash_angle:.1f} deg). Turning left."
+                        )
                         set_motors(speed//2, 0, 0, speed//2) # turn toward trash on the left
                     else:
+                        print(
+                            f"[AUTOPILOT] Trash is centered ({active_trash_angle:.1f} deg). Driving forward."
+                        )
                         set_motors(speed//2, 0, speed//2, 0) # РџСЂСЏРјРѕ
                 time.sleep(0.1)
                 continue
