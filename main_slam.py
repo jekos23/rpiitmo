@@ -312,6 +312,12 @@ try:
         global_config["servo_down_angle"] = 93
 except (TypeError, ValueError):
     global_config["servo_down_angle"] = 93
+try:
+    global_config["bucket_servo_raise_step_delay_sec"] = float(
+        global_config.get("bucket_servo_raise_step_delay_sec", 0.035)
+    )
+except (TypeError, ValueError):
+    global_config["bucket_servo_raise_step_delay_sec"] = 0.035
 
 
 def _get_ultrasonic_trigger_pin(config=None):
@@ -615,6 +621,55 @@ def _get_bucket_servo_max_pulse_us(config=None):
     except (TypeError, ValueError):
         value = BUCKET_SERVO_MAX_PULSE_US
     return max(_get_bucket_servo_min_pulse_us(config) + 100, min(3200, value))
+
+
+def _get_bucket_servo_move_sec(config=None, profile=None):
+    config = config or global_config
+    default_value = 0.8
+    key = "bucket_servo_move_sec"
+    if profile == "raise":
+        key = "bucket_servo_raise_move_sec"
+    elif profile == "lower":
+        key = "bucket_servo_lower_move_sec"
+    try:
+        value = float(config.get(key, config.get("bucket_servo_move_sec", default_value)))
+    except (TypeError, ValueError):
+        value = float(config.get("bucket_servo_move_sec", default_value) or default_value)
+    return max(0.05, value)
+
+
+def _get_bucket_servo_step_deg(config=None, profile=None):
+    config = config or global_config
+    default_value = 3
+    key = "bucket_servo_step_deg"
+    if profile == "raise":
+        key = "bucket_servo_raise_step_deg"
+    elif profile == "lower":
+        key = "bucket_servo_lower_step_deg"
+    try:
+        value = int(config.get(key, config.get("bucket_servo_step_deg", default_value)))
+    except (TypeError, ValueError):
+        value = int(config.get("bucket_servo_step_deg", default_value) or default_value)
+    return max(1, value)
+
+
+def _get_bucket_servo_step_delay_sec(config=None, profile=None):
+    config = config or global_config
+    default_value = 0.02
+    key = "bucket_servo_step_delay_sec"
+    if profile == "raise":
+        key = "bucket_servo_raise_step_delay_sec"
+    elif profile == "lower":
+        key = "bucket_servo_lower_step_delay_sec"
+    try:
+        value = float(
+            config.get(key, config.get("bucket_servo_step_delay_sec", default_value))
+        )
+    except (TypeError, ValueError):
+        value = float(
+            config.get("bucket_servo_step_delay_sec", default_value) or default_value
+        )
+    return max(0.005, value)
 
 
 def _deinit_pca_board(board_instance):
@@ -994,7 +1049,7 @@ def send_bucket_arduino_command(command):
     return _move_bucket_servo_to_angle(angle, "MOVING", wait=False)
 
 
-def _move_bucket_servo_to_angle(target_angle, label, wait=True):
+def _move_bucket_servo_to_angle(target_angle, label, wait=True, profile=None):
     global bucket_servo_current_angle
 
     if not init_bucket_servo_controller(global_config):
@@ -1002,9 +1057,9 @@ def _move_bucket_servo_to_angle(target_angle, label, wait=True):
         return False
 
     target_angle = max(0, min(180, int(target_angle)))
-    move_sec = max(0.05, float(global_config.get("bucket_servo_move_sec", 0.8)))
-    step_deg = max(1, int(global_config.get("bucket_servo_step_deg", 3)))
-    step_delay_sec = max(0.005, float(global_config.get("bucket_servo_step_delay_sec", 0.02)))
+    move_sec = _get_bucket_servo_move_sec(global_config, profile=profile)
+    step_deg = _get_bucket_servo_step_deg(global_config, profile=profile)
+    step_delay_sec = _get_bucket_servo_step_delay_sec(global_config, profile=profile)
 
     with bucket_servo_lock:
         _cancel_bucket_servo_release()
@@ -1033,7 +1088,8 @@ def set_servo_bucket(down=True, wait=True):
     down_angle = global_config.get("servo_down_angle", 93)
     target_angle = down_angle if down else up_angle
     label = "LOWERING" if down else "RAISING"
-    return _move_bucket_servo_to_angle(target_angle, label, wait=wait)
+    profile = "lower" if down else "raise"
+    return _move_bucket_servo_to_angle(target_angle, label, wait=wait, profile=profile)
 
 
 def set_bucket_motor(speed):
@@ -2043,12 +2099,15 @@ def autonomous_loop(driver, speed, detector=None):
     trash_lock_samples = []
     trash_turn_direction = 0
     trash_centered_frames = 0
+    trash_target_last_seen_at = 0.0
+    trash_target_last_seen_in_zone = False
     
     SAFE_DIST_FRONT = 0.67 # РЈРІРµР»РёС‡РёР»Рё РґРёСЃС‚Р°РЅС†РёСЋ РѕСЃС‚Р°РЅРѕРІРєРё РїРµСЂРµРґ СЃС‚РµРЅРѕР№ РµС‰Рµ РЅР° 2СЃРј
     TRASH_LOCK_DURATION_SEC = 2.0
     TRASH_TURN_START_DEG = 8.0
     TRASH_TURN_STOP_DEG = 4.0
     TRASH_CENTER_CONFIRM_FRAMES = 3
+    TRASH_TARGET_MEMORY_SEC = 1.2
     
     try:
         while driver.running:
@@ -2063,6 +2122,8 @@ def autonomous_loop(driver, speed, detector=None):
                     trash_lock_samples = []
                     trash_turn_direction = 0
                     trash_centered_frames = 0
+                    trash_target_last_seen_at = 0.0
+                    trash_target_last_seen_in_zone = False
                     stop_all()
                     time.sleep(0.1)
                     continue
@@ -2102,6 +2163,8 @@ def autonomous_loop(driver, speed, detector=None):
                 trash_lock_samples = [detected_angle]
                 trash_turn_direction = 0
                 trash_centered_frames = 0
+                trash_target_last_seen_at = time.time()
+                trash_target_last_seen_in_zone = False
                 state = "TRASH_LOCK"
                 stop_all()
                 time.sleep(0.1)
@@ -2116,6 +2179,8 @@ def autonomous_loop(driver, speed, detector=None):
                     trash_lock_samples = []
                     trash_turn_direction = 0
                     trash_centered_frames = 0
+                    trash_target_last_seen_at = 0.0
+                    trash_target_last_seen_in_zone = False
                     stop_all()
                     time.sleep(0.1)
                     continue
@@ -2138,6 +2203,8 @@ def autonomous_loop(driver, speed, detector=None):
                     active_trash_target_id = target.get("id")
                     active_trash_angle = float(target.get("angle", 0.0))
                     trash_lock_samples.append(active_trash_angle)
+                    trash_target_last_seen_at = time.time()
+                    trash_target_last_seen_in_zone = False
 
                 stop_all()
                 if (time.time() - trash_lock_started_at) < TRASH_LOCK_DURATION_SEC:
@@ -2150,6 +2217,8 @@ def autonomous_loop(driver, speed, detector=None):
                     active_trash_target_id = None
                     trash_turn_direction = 0
                     trash_centered_frames = 0
+                    trash_target_last_seen_at = 0.0
+                    trash_target_last_seen_in_zone = False
                     time.sleep(0.1)
                     continue
 
@@ -2160,6 +2229,8 @@ def autonomous_loop(driver, speed, detector=None):
                 )
                 trash_turn_direction = 0
                 trash_centered_frames = 0
+                trash_target_last_seen_at = time.time()
+                trash_target_last_seen_in_zone = False
                 state = "TRASH_APPROACH"
                 time.sleep(0.1)
                 continue
@@ -2173,6 +2244,8 @@ def autonomous_loop(driver, speed, detector=None):
                     trash_lock_samples = []
                     trash_turn_direction = 0
                     trash_centered_frames = 0
+                    trash_target_last_seen_at = 0.0
+                    trash_target_last_seen_in_zone = False
                     stop_all()
                     time.sleep(0.1)
                     continue
@@ -2193,9 +2266,37 @@ def autonomous_loop(driver, speed, detector=None):
 
                 if target is None:
                     dist = get_lidar_distance(scan, active_trash_angle)
-                    if dist < 0.25:
+                    lost_for = time.time() - trash_target_last_seen_at if trash_target_last_seen_at > 0 else 999.0
+                    if trash_target_last_seen_in_zone or dist < 0.25:
                         print("[AUTO] Trash is very close, switching to blind collect.")
-                        state = "TRASH_COLLECT"
+                        state = "TRASH_FINAL_PUSH"
+                    elif lost_for <= TRASH_TARGET_MEMORY_SEC:
+                        print(
+                            f"[AUTOPILOT] Temporarily lost trash for {lost_for:.1f}s. "
+                            "Continuing toward the last known position."
+                        )
+                        abs_angle = abs(active_trash_angle)
+                        if trash_turn_direction == 0:
+                            if active_trash_angle > TRASH_TURN_START_DEG:
+                                trash_turn_direction = 1
+                            elif active_trash_angle < -TRASH_TURN_START_DEG:
+                                trash_turn_direction = -1
+                        elif abs_angle <= TRASH_TURN_STOP_DEG:
+                            trash_centered_frames += 1
+                            if trash_centered_frames >= TRASH_CENTER_CONFIRM_FRAMES:
+                                trash_turn_direction = 0
+                        else:
+                            trash_centered_frames = 0
+
+                        turn_speed = max(1100, int(speed * 0.7))
+                        forward_speed = max(900, int(speed * 0.55))
+
+                        if trash_turn_direction > 0:
+                            set_motors(0, turn_speed, turn_speed, 0)
+                        elif trash_turn_direction < 0:
+                            set_motors(turn_speed, 0, 0, turn_speed)
+                        else:
+                            set_motors(forward_speed, 0, forward_speed, 0)
                     else:
                         state = "FORWARD"
                         active_trash_target_id = None
@@ -2203,6 +2304,8 @@ def autonomous_loop(driver, speed, detector=None):
                         trash_lock_samples = []
                         trash_turn_direction = 0
                         trash_centered_frames = 0
+                        trash_target_last_seen_at = 0.0
+                        trash_target_last_seen_in_zone = False
                         stop_all()
                     time.sleep(0.1)
                     continue
@@ -2211,6 +2314,8 @@ def autonomous_loop(driver, speed, detector=None):
                 active_trash_angle = float(target.get("angle", 0.0))
                 dist = get_lidar_distance(scan, active_trash_angle)
                 target_in_zone = bool(target.get("in_collection_zone", False))
+                trash_target_last_seen_at = time.time()
+                trash_target_last_seen_in_zone = target_in_zone
                 print(f"[РђР’РўРћРџРР›РћРў] РЎР±Р»РёР¶РµРЅРёРµ... Р”РёСЃС‚Р°РЅС†РёСЏ РїРѕ Р»РёРґР°СЂСѓ: {dist:.2f}Рј, РЈРіРѕР»: {active_trash_angle:.1f}В°")
                 
                 if target_in_zone:
@@ -2218,12 +2323,14 @@ def autonomous_loop(driver, speed, detector=None):
                     state = "TRASH_FINAL_PUSH"
                     trash_turn_direction = 0
                     trash_centered_frames = 0
+                    trash_target_last_seen_in_zone = True
                     stop_all()
                 elif dist < 0.25:
                     print("[AUTOPILOT] Trash is very close. Finishing with a short forward push.")
                     state = "TRASH_FINAL_PUSH"
                     trash_turn_direction = 0
                     trash_centered_frames = 0
+                    trash_target_last_seen_in_zone = True
                     stop_all()
                 else:
                     # Turn continuously until the target is centered, with hysteresis
@@ -2284,6 +2391,8 @@ def autonomous_loop(driver, speed, detector=None):
                 state = "TRASH_COLLECT"
                 trash_turn_direction = 0
                 trash_centered_frames = 0
+                trash_target_last_seen_at = 0.0
+                trash_target_last_seen_in_zone = False
                 time.sleep(0.1)
                 continue
                 
@@ -2310,6 +2419,8 @@ def autonomous_loop(driver, speed, detector=None):
                 trash_lock_samples = []
                 trash_turn_direction = 0
                 trash_centered_frames = 0
+                trash_target_last_seen_at = 0.0
+                trash_target_last_seen_in_zone = False
                 next_target = _get_detector_target(
                     detector,
                     exclude_ids=_cleanup_completed_trash_targets(
@@ -2326,6 +2437,8 @@ def autonomous_loop(driver, speed, detector=None):
                     trash_lock_samples = [active_trash_angle]
                     trash_turn_direction = 0
                     trash_centered_frames = 0
+                    trash_target_last_seen_at = time.time()
+                    trash_target_last_seen_in_zone = False
                     state = "TRASH_LOCK"
                 continue
 

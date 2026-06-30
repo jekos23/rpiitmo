@@ -50,6 +50,7 @@ DEFAULT_CONFIG = {
     "bucket_wall_lower_pause_sec": 0.2,
     "bucket_collect_settle_sec": 0.2,
     "bucket_motor_ramp_sec": 0.28,
+    "bucket_servo_raise_step_delay_sec": 0.035,
     "ultrasonic_trigger_pin": 23,
     "ultrasonic_echo_pin": 24,
     "ultrasonic_zero_distance_cm": 0.0,
@@ -212,6 +213,7 @@ HTML_PAGE = """<!doctype html>
         <div class="row"><div class="field"><label for="route_corridor_m">Route corridor</label><input id="route_corridor_m" type="number" step="0.1"></div><div class="field"><label for="slam_route_record_step_m">SLAM step</label><input id="slam_route_record_step_m" type="number" step="0.05"></div></div>
         <h3>Bucket timings</h3>
         <div class="row"><div class="field"><label for="bucket_wall_move_duration_sec">Wall move time (sec)</label><input id="bucket_wall_move_duration_sec" type="number" step="0.1" min="0"></div><div class="field"><label for="bucket_motor_ramp_sec">Wall ramp time (sec)</label><input id="bucket_motor_ramp_sec" type="number" step="0.01" min="0"></div></div>
+        <div class="row"><div class="field"><label for="bucket_servo_raise_step_delay_sec">Scoop raise speed delay (sec)</label><input id="bucket_servo_raise_step_delay_sec" type="number" step="0.005" min="0"></div><div class="field"></div></div>
         <div class="row"><div class="field"><label for="bucket_servo_lower_pause_sec">Pause after scoop down (sec)</label><input id="bucket_servo_lower_pause_sec" type="number" step="0.05" min="0"></div><div class="field"><label for="bucket_wall_lower_pause_sec">Pause after wall down (sec)</label><input id="bucket_wall_lower_pause_sec" type="number" step="0.05" min="0"></div></div>
         <div class="row"><div class="field"><label for="bucket_collect_settle_sec">Settle after collect (sec)</label><input id="bucket_collect_settle_sec" type="number" step="0.05" min="0"></div><div class="field"></div></div>
         <h3>Rear bin ultrasonic</h3>
@@ -316,6 +318,7 @@ HTML_PAGE = """<!doctype html>
         route_corridor_m: byId('route_corridor_m').value,
         slam_route_record_step_m: byId('slam_route_record_step_m').value,
         bucket_wall_move_duration_sec: byId('bucket_wall_move_duration_sec').value,
+        bucket_servo_raise_step_delay_sec: byId('bucket_servo_raise_step_delay_sec').value,
         bucket_servo_lower_pause_sec: byId('bucket_servo_lower_pause_sec').value,
         bucket_wall_lower_pause_sec: byId('bucket_wall_lower_pause_sec').value,
         bucket_collect_settle_sec: byId('bucket_collect_settle_sec').value,
@@ -344,6 +347,7 @@ HTML_PAGE = """<!doctype html>
       setValue('route_corridor_m', config.route_corridor_m || 3.0);
       setValue('slam_route_record_step_m', config.slam_route_record_step_m || 0.35);
       setValue('bucket_wall_move_duration_sec', typeof config.bucket_wall_move_duration_sec !== 'undefined' ? config.bucket_wall_move_duration_sec : 2.0);
+      setValue('bucket_servo_raise_step_delay_sec', typeof config.bucket_servo_raise_step_delay_sec !== 'undefined' ? config.bucket_servo_raise_step_delay_sec : 0.035);
       setValue('bucket_servo_lower_pause_sec', typeof config.bucket_servo_lower_pause_sec !== 'undefined' ? config.bucket_servo_lower_pause_sec : 0.2);
       setValue('bucket_wall_lower_pause_sec', typeof config.bucket_wall_lower_pause_sec !== 'undefined' ? config.bucket_wall_lower_pause_sec : 0.2);
       setValue('bucket_collect_settle_sec', typeof config.bucket_collect_settle_sec !== 'undefined' ? config.bucket_collect_settle_sec : 0.2);
@@ -584,6 +588,12 @@ class RobotManager:
             )
         except (TypeError, ValueError):
             normalized["bucket_wall_move_duration_sec"] = 2.0
+        try:
+            normalized["bucket_servo_raise_step_delay_sec"] = max(
+                0.0, float(normalized.get("bucket_servo_raise_step_delay_sec", 0.035))
+            )
+        except (TypeError, ValueError):
+            normalized["bucket_servo_raise_step_delay_sec"] = 0.035
         try:
             normalized["bucket_servo_lower_pause_sec"] = max(
                 0.0, float(normalized.get("bucket_servo_lower_pause_sec", 0.2))
