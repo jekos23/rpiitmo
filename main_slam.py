@@ -2205,9 +2205,9 @@ def autonomous_loop(driver, speed, detector=None):
                 else:
                     # Keep driving toward the trash until it enters the collection zone.
                     if active_trash_angle > 10:
-                        set_motors(speed//2, 0, 0, speed//2) # Р’РїСЂР°РІРѕ
+                        set_motors(0, speed//2, speed//2, 0) # turn toward trash on the right
                     elif active_trash_angle < -10:
-                        set_motors(0, speed//2, speed//2, 0) # Р’Р»РµРІРѕ
+                        set_motors(speed//2, 0, 0, speed//2) # turn toward trash on the left
                     else:
                         set_motors(speed//2, 0, speed//2, 0) # РџСЂСЏРјРѕ
                 time.sleep(0.1)
@@ -2215,12 +2215,12 @@ def autonomous_loop(driver, speed, detector=None):
 
             elif state == "TRASH_FINAL_PUSH":
                 push_speed = max(700, speed // 2)
-                print(f"[AUTOPILOT] Final approach: forward for 1.0 sec at speed {push_speed}.")
+                print(f"[AUTOPILOT] Final approach: forward for 1.5 sec at speed {push_speed}.")
                 with movement_lock:
                     current_mode = 1
                     current_speed = push_speed
                 set_motors(push_speed, 0, push_speed, 0)
-                time.sleep(1.0)
+                time.sleep(1.5)
                 stop_all()
                 state = "TRASH_COLLECT"
                 time.sleep(0.1)
