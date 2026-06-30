@@ -2698,8 +2698,13 @@ def start_video_streamer(config):
         if video_streamer_process.poll() is None:
             print(f"[VIDEO] Р’РёРґРµРѕСЃС‚СЂРёРјРµСЂ Р·Р°РїСѓС‰РµРЅ РґР»СЏ {camera_port} РЅР° РїРѕСЂС‚Сѓ {stream_port}.")
         else:
+            video_streamer_last_error = (
+                "Video streamer exited immediately. "
+                "Check that ffmpeg is installed and the selected camera node is correct."
+            )
             print("[VIDEO] Р’РёРґРµРѕСЃС‚СЂРёРјРµСЂ Р·Р°РІРµСЂС€РёР»СЃСЏ СЃСЂР°Р·Сѓ РїРѕСЃР»Рµ Р·Р°РїСѓСЃРєР°. РџСЂРѕРІРµСЂСЊС‚Рµ РїРѕСЂС‚ РєР°РјРµСЂС‹.")
     except Exception as e:
+        video_streamer_last_error = str(e)
         print(f"[VIDEO] РќРµ СѓРґР°Р»РѕСЃСЊ Р·Р°РїСѓСЃС‚РёС‚СЊ РІРёРґРµРѕСЃС‚СЂРёРјРµСЂ: {e}")
         video_streamer_process = None
 

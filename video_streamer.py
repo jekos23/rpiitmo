@@ -2,21 +2,28 @@ import argparse
 import atexit
 import glob
 import os
+import shutil
+import subprocess
+import threading
 import time
 
-import cv2
 from flask import Flask, Response
 
 
 app = Flask(__name__)
-camera = None
+
+ffmpeg_process = None
+ffmpeg_reader_thread = None
+ffmpeg_stderr_thread = None
+frame_condition = threading.Condition()
+latest_frame = None
+latest_frame_id = 0
+stream_runtime_error = ""
+camera_source_active = ""
 
 
 def parse_camera_source(value):
-    value = str(value).strip()
-    if value.isdigit():
-        return int(value)
-    return value
+    return str(value).strip()
 
 
 def _read_text_if_exists(path):
@@ -66,87 +73,225 @@ def find_camera_candidates():
     return preferred_nodes or fallback_nodes or all_nodes
 
 
-def _open_camera_handle(source):
+def _set_stream_error(message):
+    global stream_runtime_error
+    stream_runtime_error = str(message or "").strip()
+
+
+def _read_ffmpeg_stderr(process):
+    if not process or not process.stderr:
+        return
+
     try:
-        return cv2.VideoCapture(source, cv2.CAP_V4L2)
+        for raw_line in iter(process.stderr.readline, b""):
+            line = raw_line.decode("utf-8", errors="ignore").strip()
+            if line:
+                print(f"[VIDEO] {line}")
     except Exception:
-        return cv2.VideoCapture(source)
+        pass
 
 
-def _try_camera_source(camera_source):
-    source = parse_camera_source(camera_source)
-    handle = _open_camera_handle(source)
-    if not handle or not handle.isOpened():
-        if handle:
-            handle.release()
-        return None
+def _read_ffmpeg_stdout(process):
+    global latest_frame, latest_frame_id
 
-    handle.set(cv2.CAP_PROP_FRAME_WIDTH, 320)
-    handle.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
-    handle.set(cv2.CAP_PROP_FPS, 15)
+    if not process or not process.stdout:
+        return
 
-    for _ in range(6):
-        ok, frame = handle.read()
-        if ok and frame is not None:
-            return handle
-        time.sleep(0.12)
+    buffer = bytearray()
 
-    handle.release()
-    return None
+    try:
+        while process.poll() is None:
+            chunk = process.stdout.read(32768)
+            if not chunk:
+                time.sleep(0.01)
+                continue
+
+            buffer.extend(chunk)
+
+            while True:
+                start = buffer.find(b"\xff\xd8")
+                if start < 0:
+                    if len(buffer) > 1048576:
+                        del buffer[:-2]
+                    break
+
+                end = buffer.find(b"\xff\xd9", start + 2)
+                if end < 0:
+                    if start > 0:
+                        del buffer[:start]
+                    break
+
+                frame = bytes(buffer[start : end + 2])
+                del buffer[: end + 2]
+
+                with frame_condition:
+                    latest_frame = frame
+                    latest_frame_id += 1
+                    frame_condition.notify_all()
+    except Exception as exc:
+        _set_stream_error(f"FFmpeg frame reader failed: {exc}")
 
 
-def init_camera(camera_source):
-    global camera
+def _spawn_ffmpeg(command):
+    process = subprocess.Popen(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        bufsize=0,
+    )
+    time.sleep(1.0)
+    if process.poll() is not None:
+        stderr_output = b""
+        try:
+            stderr_output = process.stderr.read().strip()
+        except Exception:
+            pass
+        stderr_text = stderr_output.decode("utf-8", errors="ignore") if stderr_output else ""
+        raise RuntimeError(stderr_text or "FFmpeg exited immediately.")
+    return process
 
-    requested_source = str(camera_source).strip()
+
+def _ffmpeg_command(camera_source, mjpeg_copy):
+    ffmpeg_path = shutil.which("ffmpeg")
+    if not ffmpeg_path:
+        raise RuntimeError("FFmpeg is not installed.")
+
+    command = [
+        ffmpeg_path,
+        "-hide_banner",
+        "-loglevel",
+        "warning",
+        "-fflags",
+        "nobuffer",
+        "-flags",
+        "low_delay",
+        "-f",
+        "v4l2",
+    ]
+
+    if mjpeg_copy:
+        command.extend(["-input_format", "mjpeg"])
+
+    command.extend(
+        [
+            "-i",
+            str(camera_source),
+            "-an",
+        ]
+    )
+
+    if mjpeg_copy:
+        command.extend(["-c:v", "copy"])
+    else:
+        command.extend(["-c:v", "mjpeg", "-q:v", "4"])
+
+    command.extend(["-f", "image2pipe", "pipe:1"])
+    return command
+
+
+def release_stream():
+    global ffmpeg_process, ffmpeg_reader_thread, ffmpeg_stderr_thread
+
+    process = ffmpeg_process
+    ffmpeg_process = None
+
+    if process is not None:
+        try:
+            if process.poll() is None:
+                process.terminate()
+                process.wait(timeout=3)
+        except Exception:
+            try:
+                process.kill()
+            except Exception:
+                pass
+
+    ffmpeg_reader_thread = None
+    ffmpeg_stderr_thread = None
+
+
+def init_stream(camera_source):
+    global ffmpeg_process, ffmpeg_reader_thread, ffmpeg_stderr_thread
+    global camera_source_active, latest_frame, latest_frame_id
+
+    release_stream()
+
+    requested_source = parse_camera_source(camera_source)
     attempts = [requested_source] if requested_source else []
-
     for candidate in find_camera_candidates():
         if candidate not in attempts:
             attempts.append(candidate)
 
+    last_error = "No camera devices found."
     for attempt in attempts:
-        handle = _try_camera_source(attempt)
-        if handle is not None:
-            camera = handle
-            if attempt != requested_source:
-                print(f"[VIDEO] Camera auto-selected: {requested_source} -> {attempt}")
-            return
+        for mjpeg_copy in (True, False):
+            command = _ffmpeg_command(attempt, mjpeg_copy=mjpeg_copy)
+            mode_label = "MJPEG copy" if mjpeg_copy else "MJPEG encode"
+            try:
+                print(f"[VIDEO] Trying {attempt} with {mode_label}.")
+                process = _spawn_ffmpeg(command)
+                ffmpeg_process = process
+                camera_source_active = attempt
+                latest_frame = None
+                latest_frame_id = 0
+                _set_stream_error("")
 
-    raise RuntimeError(f"Failed to open camera: {camera_source}")
+                ffmpeg_reader_thread = threading.Thread(
+                    target=_read_ffmpeg_stdout,
+                    args=(process,),
+                    daemon=True,
+                )
+                ffmpeg_reader_thread.start()
+
+                ffmpeg_stderr_thread = threading.Thread(
+                    target=_read_ffmpeg_stderr,
+                    args=(process,),
+                    daemon=True,
+                )
+                ffmpeg_stderr_thread.start()
+
+                if attempt != requested_source and requested_source:
+                    print(f"[VIDEO] Camera auto-selected: {requested_source} -> {attempt}")
+                print(f"[VIDEO] Streaming source ready: {attempt} ({mode_label}).")
+                return
+            except Exception as exc:
+                last_error = str(exc)
+                release_stream()
+
+    _set_stream_error(last_error)
+    raise RuntimeError(f"Failed to open camera: {requested_source}. {last_error}")
 
 
-def release_camera():
-    global camera
-    if camera is not None:
-        try:
-            camera.release()
-        except Exception:
-            pass
-        camera = None
-
-
-atexit.register(release_camera)
+atexit.register(release_stream)
 
 
 def generate_frames():
+    local_frame_id = -1
+    idle_loops = 0
+
     while True:
-        if camera is None:
-            break
+        with frame_condition:
+            frame_condition.wait_for(
+                lambda: latest_frame_id != local_frame_id or ffmpeg_process is None,
+                timeout=2.0,
+            )
+            frame = latest_frame
+            frame_id = latest_frame_id
+            process = ffmpeg_process
 
-        success, frame = camera.read()
-        if not success:
+        if frame is not None and frame_id != local_frame_id:
+            local_frame_id = frame_id
+            idle_loops = 0
+            yield (
+                b"--frame\r\n"
+                b"Content-Type: image/jpeg\r\n\r\n" + frame + b"\r\n"
+            )
             continue
 
-        ok, buffer = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 70])
-        if not ok:
-            continue
-
-        frame_bytes = buffer.tobytes()
-        yield (
-            b"--frame\r\n"
-            b"Content-Type: image/jpeg\r\n\r\n" + frame_bytes + b"\r\n"
-        )
+        if process is None or process.poll() is not None:
+            idle_loops += 1
+            if idle_loops >= 3:
+                break
 
 
 @app.route("/video_feed")
@@ -159,16 +304,16 @@ def video_feed():
 
 def main():
     parser = argparse.ArgumentParser(
-        description="MJPEG streamer for Raspberry Pi camera source"
+        description="Low-overhead MJPEG streamer for Raspberry Pi camera source"
     )
-    parser.add_argument("--camera", default="0", help="Camera source, e.g. 0 or /dev/video0")
+    parser.add_argument("--camera", default="/dev/video0", help="Camera source, e.g. /dev/video0")
     parser.add_argument("--host", default="0.0.0.0", help="Host for Flask server")
     parser.add_argument("--port", type=int, default=6767, help="HTTP port for MJPEG stream")
     args = parser.parse_args()
 
     print(f"[VIDEO] Opening camera: {args.camera}")
-    init_camera(args.camera)
-    print("[VIDEO] Streamer started.")
+    init_stream(args.camera)
+    print("[VIDEO] Streamer started without OpenCV.")
     print(f"[VIDEO] Stream is available at: http://<IP_PI>:{args.port}/video_feed")
     app.run(host=args.host, port=args.port, threaded=True)
 

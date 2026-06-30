@@ -158,12 +158,14 @@ HTML_PAGE = """<!doctype html>
     }
     .hint { color: #aebdca; margin: 4px 0 10px; }
     .video {
+      display: block;
       width: 100%;
-      min-height: 320px;
+      height: auto;
+      max-height: 70vh;
       background: #06090c;
       border: 1px solid #37506a;
       border-radius: 8px;
-      object-fit: cover;
+      object-fit: contain;
     }
     .log {
       white-space: pre-wrap;
