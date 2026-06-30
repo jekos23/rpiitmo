@@ -2082,7 +2082,7 @@ def autonomous_loop(driver, speed, detector=None):
             if (
                 active_target
                 and (not route_enabled or route_within_corridor)
-                and state not in ["TRASH_LOCK", "TRASH_APPROACH", "TRASH_COLLECT"]
+                and state not in ["TRASH_LOCK", "TRASH_APPROACH", "TRASH_FINAL_PUSH", "TRASH_COLLECT"]
             ):
                 detected_angle = float(active_target.get("angle", 0.0))
                 print(
@@ -2194,27 +2194,35 @@ def autonomous_loop(driver, speed, detector=None):
                 target_in_zone = bool(target.get("in_collection_zone", False))
                 print(f"[РђР’РўРћРџРР›РћРў] РЎР±Р»РёР¶РµРЅРёРµ... Р”РёСЃС‚Р°РЅС†РёСЏ РїРѕ Р»РёРґР°СЂСѓ: {dist:.2f}Рј, РЈРіРѕР»: {active_trash_angle:.1f}В°")
                 
-                # Р•СЃР»Рё РјСѓСЃРѕСЂ СЃР»РёС€РєРѕРј Р±Р»РёР·РєРѕ РёР»Рё РїРѕС‚РµСЂСЏРЅ РёР· РІРёРґСѓ РІР±Р»РёР·Рё (СЃР»РµРїР°СЏ Р·РѕРЅР°)
-                if target_in_zone and dist < 0.40:
-                    print("[РђР’РўРћРџРР›РћРў] РњСѓСЃРѕСЂ РІ Р·РѕРЅРµ Р·Р°С…РІР°С‚Р°!")
-                    state = "TRASH_COLLECT"
+                if target_in_zone:
+                    print("[AUTOPILOT] Trash is inside collection zone. Moving forward for 1 second before grab.")
+                    state = "TRASH_FINAL_PUSH"
+                    stop_all()
                 elif dist < 0.25:
-                    print("[AUTO] Trash is very close, switching to blind collect.")
-                    state = "TRASH_COLLECT"
-                elif dist >= 0.4 and not target_in_zone:
-                    print("[РђР’РўРћРџРР›РћРў] Р›РѕР¶РЅРѕРµ СЃСЂР°Р±Р°С‚С‹РІР°РЅРёРµ РёР»Рё РјСѓСЃРѕСЂ СѓС‚РµСЂСЏРЅ РІРґР°Р»Рё. Р’РѕР·РІСЂР°С‚.")
-                    state = "FORWARD"
-                    active_trash_target_id = None
-                    trash_lock_started_at = 0.0
-                    trash_lock_samples = []
+                    print("[AUTOPILOT] Trash is very close. Finishing with a short forward push.")
+                    state = "TRASH_FINAL_PUSH"
+                    stop_all()
                 else:
-                    # РџРѕРґСЂСѓР»РёРІР°РЅРёРµ (РёСЃРїРѕР»СЊР·СѓРµРј 50% СЃРєРѕСЂРѕСЃС‚Рё РґР»СЏ РїР»Р°РІРЅРѕСЃС‚Рё)
+                    # Keep driving toward the trash until it enters the collection zone.
                     if active_trash_angle > 10:
                         set_motors(speed//2, 0, 0, speed//2) # Р’РїСЂР°РІРѕ
                     elif active_trash_angle < -10:
                         set_motors(0, speed//2, speed//2, 0) # Р’Р»РµРІРѕ
                     else:
                         set_motors(speed//2, 0, speed//2, 0) # РџСЂСЏРјРѕ
+                time.sleep(0.1)
+                continue
+
+            elif state == "TRASH_FINAL_PUSH":
+                push_speed = max(700, speed // 2)
+                print(f"[AUTOPILOT] Final approach: forward for 1.0 sec at speed {push_speed}.")
+                with movement_lock:
+                    current_mode = 1
+                    current_speed = push_speed
+                set_motors(push_speed, 0, push_speed, 0)
+                time.sleep(1.0)
+                stop_all()
+                state = "TRASH_COLLECT"
                 time.sleep(0.1)
                 continue
                 
