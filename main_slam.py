@@ -2041,9 +2041,14 @@ def autonomous_loop(driver, speed, detector=None):
     completed_trash_targets = {}
     trash_lock_started_at = 0.0
     trash_lock_samples = []
+    trash_turn_direction = 0
+    trash_centered_frames = 0
     
     SAFE_DIST_FRONT = 0.67 # РЈРІРµР»РёС‡РёР»Рё РґРёСЃС‚Р°РЅС†РёСЋ РѕСЃС‚Р°РЅРѕРІРєРё РїРµСЂРµРґ СЃС‚РµРЅРѕР№ РµС‰Рµ РЅР° 2СЃРј
     TRASH_LOCK_DURATION_SEC = 2.0
+    TRASH_TURN_START_DEG = 8.0
+    TRASH_TURN_STOP_DEG = 4.0
+    TRASH_CENTER_CONFIRM_FRAMES = 3
     
     try:
         while driver.running:
@@ -2056,6 +2061,8 @@ def autonomous_loop(driver, speed, detector=None):
                     active_trash_target_id = None
                     trash_lock_started_at = 0.0
                     trash_lock_samples = []
+                    trash_turn_direction = 0
+                    trash_centered_frames = 0
                     stop_all()
                     time.sleep(0.1)
                     continue
@@ -2093,6 +2100,8 @@ def autonomous_loop(driver, speed, detector=None):
                 active_trash_angle = detected_angle
                 trash_lock_started_at = time.time()
                 trash_lock_samples = [detected_angle]
+                trash_turn_direction = 0
+                trash_centered_frames = 0
                 state = "TRASH_LOCK"
                 stop_all()
                 time.sleep(0.1)
@@ -2105,6 +2114,8 @@ def autonomous_loop(driver, speed, detector=None):
                     active_trash_target_id = None
                     trash_lock_started_at = 0.0
                     trash_lock_samples = []
+                    trash_turn_direction = 0
+                    trash_centered_frames = 0
                     stop_all()
                     time.sleep(0.1)
                     continue
@@ -2137,6 +2148,8 @@ def autonomous_loop(driver, speed, detector=None):
                     print("[AUTOPILOT] Trash angle could not be stabilized. Returning to search.")
                     state = "FORWARD"
                     active_trash_target_id = None
+                    trash_turn_direction = 0
+                    trash_centered_frames = 0
                     time.sleep(0.1)
                     continue
 
@@ -2145,6 +2158,8 @@ def autonomous_loop(driver, speed, detector=None):
                     f"[AUTOPILOT] Target angle stabilized at {active_trash_angle:.1f} deg "
                     f"using {len(trash_lock_samples)} samples. Starting approach."
                 )
+                trash_turn_direction = 0
+                trash_centered_frames = 0
                 state = "TRASH_APPROACH"
                 time.sleep(0.1)
                 continue
@@ -2156,6 +2171,8 @@ def autonomous_loop(driver, speed, detector=None):
                     active_trash_target_id = None
                     trash_lock_started_at = 0.0
                     trash_lock_samples = []
+                    trash_turn_direction = 0
+                    trash_centered_frames = 0
                     stop_all()
                     time.sleep(0.1)
                     continue
@@ -2184,6 +2201,8 @@ def autonomous_loop(driver, speed, detector=None):
                         active_trash_target_id = None
                         trash_lock_started_at = 0.0
                         trash_lock_samples = []
+                        trash_turn_direction = 0
+                        trash_centered_frames = 0
                         stop_all()
                     time.sleep(0.1)
                     continue
@@ -2195,30 +2214,61 @@ def autonomous_loop(driver, speed, detector=None):
                 print(f"[РђР’РўРћРџРР›РћРў] РЎР±Р»РёР¶РµРЅРёРµ... Р”РёСЃС‚Р°РЅС†РёСЏ РїРѕ Р»РёРґР°СЂСѓ: {dist:.2f}Рј, РЈРіРѕР»: {active_trash_angle:.1f}В°")
                 
                 if target_in_zone:
-                    print("[AUTOPILOT] Trash is inside collection zone. Moving forward for 1 second before grab.")
+                    print("[AUTOPILOT] Trash is inside collection zone. Moving forward for 1.5 seconds before grab.")
                     state = "TRASH_FINAL_PUSH"
+                    trash_turn_direction = 0
+                    trash_centered_frames = 0
                     stop_all()
                 elif dist < 0.25:
                     print("[AUTOPILOT] Trash is very close. Finishing with a short forward push.")
                     state = "TRASH_FINAL_PUSH"
+                    trash_turn_direction = 0
+                    trash_centered_frames = 0
                     stop_all()
                 else:
-                    # Keep driving toward the trash until it enters the collection zone.
-                    if active_trash_angle > 10:
-                        print(
-                            f"[AUTOPILOT] Trash is on the RIGHT ({active_trash_angle:.1f} deg). Turning right."
-                        )
-                        set_motors(0, speed//2, speed//2, 0) # turn toward trash on the right
-                    elif active_trash_angle < -10:
-                        print(
-                            f"[AUTOPILOT] Trash is on the LEFT ({active_trash_angle:.1f} deg). Turning left."
-                        )
-                        set_motors(speed//2, 0, 0, speed//2) # turn toward trash on the left
+                    # Turn continuously until the target is centered, with hysteresis
+                    # so the robot does not twitch left-right on noisy angles.
+                    abs_angle = abs(active_trash_angle)
+                    if trash_turn_direction == 0:
+                        if active_trash_angle > TRASH_TURN_START_DEG:
+                            trash_turn_direction = 1
+                        elif active_trash_angle < -TRASH_TURN_START_DEG:
+                            trash_turn_direction = -1
+                    elif abs_angle <= TRASH_TURN_STOP_DEG:
+                        trash_centered_frames += 1
+                        if trash_centered_frames >= TRASH_CENTER_CONFIRM_FRAMES:
+                            trash_turn_direction = 0
                     else:
+                        trash_centered_frames = 0
+
+                    turn_speed = max(1100, int(speed * 0.7))
+                    forward_speed = max(900, int(speed * 0.55))
+
+                    if trash_turn_direction > 0:
+                        trash_centered_frames = 0
                         print(
-                            f"[AUTOPILOT] Trash is centered ({active_trash_angle:.1f} deg). Driving forward."
+                            f"[AUTOPILOT] Trash is on the RIGHT ({active_trash_angle:.1f} deg). "
+                            f"Turning right until centered."
                         )
-                        set_motors(speed//2, 0, speed//2, 0) # РџСЂСЏРјРѕ
+                        set_motors(0, turn_speed, turn_speed, 0)
+                    elif trash_turn_direction < 0:
+                        trash_centered_frames = 0
+                        print(
+                            f"[AUTOPILOT] Trash is on the LEFT ({active_trash_angle:.1f} deg). "
+                            f"Turning left until centered."
+                        )
+                        set_motors(turn_speed, 0, 0, turn_speed)
+                    else:
+                        if trash_centered_frames > 0:
+                            print(
+                                f"[AUTOPILOT] Trash is nearly centered ({active_trash_angle:.1f} deg). "
+                                "Holding course forward."
+                            )
+                        else:
+                            print(
+                                f"[AUTOPILOT] Trash is centered ({active_trash_angle:.1f} deg). Driving forward."
+                            )
+                        set_motors(forward_speed, 0, forward_speed, 0)
                 time.sleep(0.1)
                 continue
 
@@ -2232,6 +2282,8 @@ def autonomous_loop(driver, speed, detector=None):
                 time.sleep(1.5)
                 stop_all()
                 state = "TRASH_COLLECT"
+                trash_turn_direction = 0
+                trash_centered_frames = 0
                 time.sleep(0.1)
                 continue
                 
@@ -2256,6 +2308,8 @@ def autonomous_loop(driver, speed, detector=None):
                 active_trash_target_id = None
                 trash_lock_started_at = 0.0
                 trash_lock_samples = []
+                trash_turn_direction = 0
+                trash_centered_frames = 0
                 next_target = _get_detector_target(
                     detector,
                     exclude_ids=_cleanup_completed_trash_targets(
@@ -2270,6 +2324,8 @@ def autonomous_loop(driver, speed, detector=None):
                     active_trash_angle = float(next_target.get("angle", 0.0))
                     trash_lock_started_at = time.time()
                     trash_lock_samples = [active_trash_angle]
+                    trash_turn_direction = 0
+                    trash_centered_frames = 0
                     state = "TRASH_LOCK"
                 continue
 
