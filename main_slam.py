@@ -2104,10 +2104,41 @@ def autonomous_loop(driver, speed, detector=None):
     
     SAFE_DIST_FRONT = 0.67 # РЈРІРµР»РёС‡РёР»Рё РґРёСЃС‚Р°РЅС†РёСЋ РѕСЃС‚Р°РЅРѕРІРєРё РїРµСЂРµРґ СЃС‚РµРЅРѕР№ РµС‰Рµ РЅР° 2СЃРј
     TRASH_LOCK_DURATION_SEC = 2.0
-    TRASH_TURN_START_DEG = 8.0
-    TRASH_TURN_STOP_DEG = 4.0
-    TRASH_CENTER_CONFIRM_FRAMES = 3
+    TRASH_TURN_START_DEG = 9.0
+    TRASH_TURN_STOP_DEG = 5.0
+    TRASH_CENTER_CONFIRM_FRAMES = 2
     TRASH_TARGET_MEMORY_SEC = 1.2
+    TRASH_TURN_SPEED_FACTOR = 0.58
+    TRASH_FORWARD_SPEED_FACTOR = 0.50
+    TRASH_TURN_PULSE_BASE_SEC = 0.06
+    TRASH_TURN_PULSE_PER_DEG_SEC = 0.006
+    TRASH_TURN_PULSE_MAX_SEC = 0.22
+    TRASH_POST_TURN_PAUSE_SEC = 1.5
+
+    def perform_trash_turn_step(angle_deg):
+        effective_angle = max(0.0, abs(float(angle_deg)) - TRASH_TURN_STOP_DEG)
+        turn_duration_sec = min(
+            TRASH_TURN_PULSE_MAX_SEC,
+            TRASH_TURN_PULSE_BASE_SEC + effective_angle * TRASH_TURN_PULSE_PER_DEG_SEC,
+        )
+        turn_speed = max(950, int(speed * TRASH_TURN_SPEED_FACTOR))
+
+        if angle_deg > 0:
+            print(
+                f"[AUTOPILOT] Trash is on the RIGHT ({angle_deg:.1f} deg). "
+                f"Turning right for {turn_duration_sec:.2f} sec, then waiting {TRASH_POST_TURN_PAUSE_SEC:.1f} sec."
+            )
+            set_motors(0, turn_speed, turn_speed, 0)
+        else:
+            print(
+                f"[AUTOPILOT] Trash is on the LEFT ({angle_deg:.1f} deg). "
+                f"Turning left for {turn_duration_sec:.2f} sec, then waiting {TRASH_POST_TURN_PAUSE_SEC:.1f} sec."
+            )
+            set_motors(turn_speed, 0, 0, turn_speed)
+
+        time.sleep(turn_duration_sec)
+        stop_all()
+        time.sleep(TRASH_POST_TURN_PAUSE_SEC)
     
     try:
         while driver.running:
@@ -2288,13 +2319,16 @@ def autonomous_loop(driver, speed, detector=None):
                         else:
                             trash_centered_frames = 0
 
-                        turn_speed = max(1100, int(speed * 0.7))
-                        forward_speed = max(900, int(speed * 0.55))
+                        forward_speed = max(850, int(speed * TRASH_FORWARD_SPEED_FACTOR))
 
                         if trash_turn_direction > 0:
-                            set_motors(0, turn_speed, turn_speed, 0)
+                            perform_trash_turn_step(active_trash_angle)
+                            trash_turn_direction = 0
+                            trash_centered_frames = 0
                         elif trash_turn_direction < 0:
-                            set_motors(turn_speed, 0, 0, turn_speed)
+                            perform_trash_turn_step(active_trash_angle)
+                            trash_turn_direction = 0
+                            trash_centered_frames = 0
                         else:
                             set_motors(forward_speed, 0, forward_speed, 0)
                     else:
@@ -2348,23 +2382,16 @@ def autonomous_loop(driver, speed, detector=None):
                     else:
                         trash_centered_frames = 0
 
-                    turn_speed = max(1100, int(speed * 0.7))
-                    forward_speed = max(900, int(speed * 0.55))
+                    forward_speed = max(850, int(speed * TRASH_FORWARD_SPEED_FACTOR))
 
                     if trash_turn_direction > 0:
                         trash_centered_frames = 0
-                        print(
-                            f"[AUTOPILOT] Trash is on the RIGHT ({active_trash_angle:.1f} deg). "
-                            f"Turning right until centered."
-                        )
-                        set_motors(0, turn_speed, turn_speed, 0)
+                        perform_trash_turn_step(active_trash_angle)
+                        trash_turn_direction = 0
                     elif trash_turn_direction < 0:
                         trash_centered_frames = 0
-                        print(
-                            f"[AUTOPILOT] Trash is on the LEFT ({active_trash_angle:.1f} deg). "
-                            f"Turning left until centered."
-                        )
-                        set_motors(turn_speed, 0, 0, turn_speed)
+                        perform_trash_turn_step(active_trash_angle)
+                        trash_turn_direction = 0
                     else:
                         if trash_centered_frames > 0:
                             print(
