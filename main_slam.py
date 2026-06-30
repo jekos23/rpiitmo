@@ -1860,6 +1860,23 @@ def _get_detector_target(detector, preferred_id=None, exclude_ids=None):
     return None
 
 
+def _average_target_angles_deg(angle_samples):
+    if not angle_samples:
+        return 0.0
+
+    sin_sum = 0.0
+    cos_sum = 0.0
+    for angle_deg in angle_samples:
+        angle_rad = math.radians(float(angle_deg))
+        sin_sum += math.sin(angle_rad)
+        cos_sum += math.cos(angle_rad)
+
+    if abs(sin_sum) < 1e-6 and abs(cos_sum) < 1e-6:
+        return float(angle_samples[-1])
+
+    return math.degrees(math.atan2(sin_sum, cos_sum))
+
+
 def slam_thread_function(driver, show_map):
     global latest_slam_pose
     slam = OnlineFastSlam(show_map=show_map)
@@ -2022,8 +2039,11 @@ def autonomous_loop(driver, speed, detector=None):
     active_trash_target_id = None
     active_trash_angle = 0.0
     completed_trash_targets = {}
+    trash_lock_started_at = 0.0
+    trash_lock_samples = []
     
     SAFE_DIST_FRONT = 0.67 # РЈРІРµР»РёС‡РёР»Рё РґРёСЃС‚Р°РЅС†РёСЋ РѕСЃС‚Р°РЅРѕРІРєРё РїРµСЂРµРґ СЃС‚РµРЅРѕР№ РµС‰Рµ РЅР° 2СЃРј
+    TRASH_LOCK_DURATION_SEC = 2.0
     
     try:
         while driver.running:
@@ -2034,6 +2054,8 @@ def autonomous_loop(driver, speed, detector=None):
                         print("[AUTOPILOT] App not confirmed yet. Robot stays stopped.")
                     state = "WAIT_APP"
                     active_trash_target_id = None
+                    trash_lock_started_at = 0.0
+                    trash_lock_samples = []
                     stop_all()
                     time.sleep(0.1)
                     continue
@@ -2060,18 +2082,80 @@ def autonomous_loop(driver, speed, detector=None):
             if (
                 active_target
                 and (not route_enabled or route_within_corridor)
-                and state not in ["TRASH_APPROACH", "TRASH_COLLECT"]
+                and state not in ["TRASH_LOCK", "TRASH_APPROACH", "TRASH_COLLECT"]
             ):
-                print(f"[РђР’РўРћРџРР›РћРў] РњРЈРЎРћР  РћР‘РќРђР РЈР–Р•Рќ (РЈРіРѕР»: {active_trash_angle:.1f})! РќР°С‡РёРЅР°СЋ СЃР±Р»РёР¶РµРЅРёРµ.")
+                detected_angle = float(active_target.get("angle", 0.0))
+                print(
+                    f"[AUTOPILOT] Trash detected ({detected_angle:.1f} deg). "
+                    "Stopping for 2 seconds to stabilize the target angle."
+                )
                 active_trash_target_id = active_target.get("id")
-                active_trash_angle = float(active_target.get("angle", 0.0))
+                active_trash_angle = detected_angle
+                trash_lock_started_at = time.time()
+                trash_lock_samples = [detected_angle]
+                state = "TRASH_LOCK"
+                stop_all()
+                time.sleep(0.1)
+                continue
+
+            if state == "TRASH_LOCK":
+                if route_enabled and not route_within_corridor:
+                    print("[AUTOPILOT] Target is outside the active route corridor. Returning to route.")
+                    state = "FORWARD"
+                    active_trash_target_id = None
+                    trash_lock_started_at = 0.0
+                    trash_lock_samples = []
+                    stop_all()
+                    time.sleep(0.1)
+                    continue
+
+                target = _get_detector_target(
+                    detector,
+                    preferred_id=active_trash_target_id,
+                    exclude_ids=ignored_target_ids,
+                )
+                if target is None:
+                    replacement_target = _get_detector_target(
+                        detector,
+                        exclude_ids=ignored_target_ids,
+                    )
+                    if replacement_target is not None:
+                        active_trash_target_id = replacement_target.get("id")
+                        target = replacement_target
+
+                if target is not None:
+                    active_trash_target_id = target.get("id")
+                    active_trash_angle = float(target.get("angle", 0.0))
+                    trash_lock_samples.append(active_trash_angle)
+
+                stop_all()
+                if (time.time() - trash_lock_started_at) < TRASH_LOCK_DURATION_SEC:
+                    time.sleep(0.1)
+                    continue
+
+                if not trash_lock_samples:
+                    print("[AUTOPILOT] Trash angle could not be stabilized. Returning to search.")
+                    state = "FORWARD"
+                    active_trash_target_id = None
+                    time.sleep(0.1)
+                    continue
+
+                active_trash_angle = _average_target_angles_deg(trash_lock_samples)
+                print(
+                    f"[AUTOPILOT] Target angle stabilized at {active_trash_angle:.1f} deg "
+                    f"using {len(trash_lock_samples)} samples. Starting approach."
+                )
                 state = "TRASH_APPROACH"
+                time.sleep(0.1)
+                continue
                 
             if state == "TRASH_APPROACH":
                 if route_enabled and not route_within_corridor:
                     print("[AUTOPILOT] Target is outside the active route corridor. Returning to route.")
                     state = "FORWARD"
                     active_trash_target_id = None
+                    trash_lock_started_at = 0.0
+                    trash_lock_samples = []
                     stop_all()
                     time.sleep(0.1)
                     continue
@@ -2098,6 +2182,8 @@ def autonomous_loop(driver, speed, detector=None):
                     else:
                         state = "FORWARD"
                         active_trash_target_id = None
+                        trash_lock_started_at = 0.0
+                        trash_lock_samples = []
                         stop_all()
                     time.sleep(0.1)
                     continue
@@ -2118,6 +2204,9 @@ def autonomous_loop(driver, speed, detector=None):
                 elif dist >= 0.4 and not target_in_zone:
                     print("[РђР’РўРћРџРР›РћРў] Р›РѕР¶РЅРѕРµ СЃСЂР°Р±Р°С‚С‹РІР°РЅРёРµ РёР»Рё РјСѓСЃРѕСЂ СѓС‚РµСЂСЏРЅ РІРґР°Р»Рё. Р’РѕР·РІСЂР°С‚.")
                     state = "FORWARD"
+                    active_trash_target_id = None
+                    trash_lock_started_at = 0.0
+                    trash_lock_samples = []
                 else:
                     # РџРѕРґСЂСѓР»РёРІР°РЅРёРµ (РёСЃРїРѕР»СЊР·СѓРµРј 50% СЃРєРѕСЂРѕСЃС‚Рё РґР»СЏ РїР»Р°РІРЅРѕСЃС‚Рё)
                     if active_trash_angle > 10:
@@ -2148,6 +2237,8 @@ def autonomous_loop(driver, speed, detector=None):
                     if hasattr(detector, "trash_in_collection_zone"):
                         detector.trash_in_collection_zone = False
                 active_trash_target_id = None
+                trash_lock_started_at = 0.0
+                trash_lock_samples = []
                 next_target = _get_detector_target(
                     detector,
                     exclude_ids=_cleanup_completed_trash_targets(
@@ -2160,7 +2251,9 @@ def autonomous_loop(driver, speed, detector=None):
                 ):
                     active_trash_target_id = next_target.get("id")
                     active_trash_angle = float(next_target.get("angle", 0.0))
-                    state = "TRASH_APPROACH"
+                    trash_lock_started_at = time.time()
+                    trash_lock_samples = [active_trash_angle]
+                    state = "TRASH_LOCK"
                 continue
 
             # --- Р›РћР“РРљРђ РРЎРЎР›Р•Р”РћР’РђРўР•Р›РЇ РЎ Р›РР”РђР РћРњ ---
