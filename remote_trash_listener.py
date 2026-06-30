@@ -30,6 +30,7 @@ class RemoteTrashListener:
         self.route_distance_m = None
         self.route_data_fresh = False
         self.position = None
+        self.app_enabled = False
         self.last_packet_time = 0.0
         self._ignored_target_ids = {}
         self._lock = threading.Lock()
@@ -238,9 +239,12 @@ class RemoteTrashListener:
                     route_distance_m = None
                 position = message.get("position")
                 normalized_position = position if isinstance(position, dict) else None
+                app_enabled = bool(message.get("app_enabled", False))
                 parsed_targets = self._extract_targets(message)
                 last_receive_time = time.time()
                 with self._lock:
+                    was_enabled = self.app_enabled
+                    self.app_enabled = app_enabled
                     self.route_mode_enabled = route_mode_enabled
                     self.within_route_corridor = within_route_corridor
                     self.route_distance_m = route_distance_m
@@ -248,13 +252,21 @@ class RemoteTrashListener:
                     self.route_data_fresh = True
                     self.last_packet_time = last_receive_time
                     self._cleanup_ignored_targets(last_receive_time)
-                    self.targets = [
-                        target
-                        for target in parsed_targets
-                        if target.get("id") not in self._ignored_target_ids
-                    ]
+                    self.targets = (
+                        [
+                            target
+                            for target in parsed_targets
+                            if target.get("id") not in self._ignored_target_ids
+                        ]
+                        if self.app_enabled
+                        else []
+                    )
                     self._refresh_primary_target_locked()
                     primary_target = dict(self.targets[0]) if self.targets else None
+
+                if was_enabled != app_enabled:
+                    state_label = "enabled" if app_enabled else "locked"
+                    print(f"[YOLO-REMOTE] App drive state: {state_label}.")
 
                 if primary_target is not None:
                     zone_suffix = (
@@ -270,6 +282,7 @@ class RemoteTrashListener:
             except socket.timeout:
                 if time.time() - last_receive_time > 2.0:
                     with self._lock:
+                        self.app_enabled = False
                         self.targets = []
                         self._refresh_primary_target_locked()
                         self.route_data_fresh = False

@@ -100,7 +100,7 @@ if __name__ == '__main__':
         while True:
             scan = driver.get_latest_scan()
             # print front distance
-            print(f"Front: {scan[180]:.2f}m, Back: {scan[0]:.2f}m")
+            print(f"Front: {scan[0]:.2f}m, Back: {scan[180]:.2f}m")
             time.sleep(0.5)
     except KeyboardInterrupt:
         driver.stop()

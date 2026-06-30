@@ -2013,6 +2013,8 @@ def calibrate_motors(config):
 def autonomous_loop(driver, speed, detector=None):
     print("\n=== Р’РќРРњРђРќРР•: Р’РљР›Р®Р§Р•Рќ РЈРњРќР«Р™ РђР’РўРћРџРР›РћРў ===")
     print("Р РѕР±РѕС‚ Р±СѓРґРµС‚ РёСЃСЃР»РµРґРѕРІР°С‚СЊ РјРµСЃС‚РЅРѕСЃС‚СЊ, СѓС‡РёС‚С‹РІР°СЏ СЃРІРѕРё РіР°Р±Р°СЂРёС‚С‹!")
+    if detector is not None and hasattr(detector, "app_enabled"):
+        print("[AUTOPILOT] Waiting for app confirmation before any movement.")
     time.sleep(2) 
     
     global current_mode, current_speed
@@ -2025,6 +2027,20 @@ def autonomous_loop(driver, speed, detector=None):
     
     try:
         while driver.running:
+            if detector is not None and hasattr(detector, "app_enabled"):
+                app_enabled = bool(getattr(detector, "app_enabled", False))
+                if not app_enabled:
+                    if state != "WAIT_APP":
+                        print("[AUTOPILOT] App not confirmed yet. Robot stays stopped.")
+                    state = "WAIT_APP"
+                    active_trash_target_id = None
+                    stop_all()
+                    time.sleep(0.1)
+                    continue
+                if state == "WAIT_APP":
+                    print("[AUTOPILOT] App confirmed. Starting robot movement.")
+                    state = "FORWARD"
+
             # --- Р›РћР“РРљРђ РЎР‘РћР Рђ РњРЈРЎРћР Рђ (YOLO) ---
             scan = driver.get_latest_scan()
             ignored_target_ids = _cleanup_completed_trash_targets(
