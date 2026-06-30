@@ -688,6 +688,7 @@ LEFT_FWD_CHANNELS = [0, 3, 5]
 LEFT_REV_CHANNELS = [1, 2, 4]
 RIGHT_FWD_CHANNELS = [7, 9, 11]
 RIGHT_REV_CHANNELS = [6, 8, 10]
+TURN_IDLE_CHANNELS = (4, 5, 9, 10)
 
 init_pca_controllers(global_config)
 
@@ -745,6 +746,12 @@ def set_motors(left_fwd, left_rev, right_fwd, right_rev):
     for ch in LEFT_REV_CHANNELS: pca.channels[ch].duty_cycle = l_fwd_pwm
     for ch in RIGHT_FWD_CHANNELS: pca.channels[ch].duty_cycle = r_rev_pwm
     for ch in RIGHT_REV_CHANNELS: pca.channels[ch].duty_cycle = r_fwd_pwm
+
+    is_left_turn = left_fwd > 0 and left_rev == 0 and right_fwd == 0 and right_rev > 0
+    is_right_turn = left_fwd == 0 and left_rev > 0 and right_fwd > 0 and right_rev == 0
+    if is_left_turn or is_right_turn:
+        for ch in TURN_IDLE_CHANNELS:
+            pca.channels[ch].duty_cycle = 0
 
 def _legacy_set_servo_bucket(down=True):
     return set_servo_bucket(down=down, wait=True)
