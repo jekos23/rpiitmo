@@ -2094,6 +2094,7 @@ def autonomous_loop(driver, speed, detector=None):
     state = "FORWARD"
     active_trash_target_id = None
     active_trash_angle = 0.0
+    trash_last_seen_angle = 0.0
     completed_trash_targets = {}
     trash_lock_started_at = 0.0
     trash_lock_samples = []
@@ -2155,6 +2156,7 @@ def autonomous_loop(driver, speed, detector=None):
                     trash_centered_frames = 0
                     trash_target_last_seen_at = 0.0
                     trash_target_last_seen_in_zone = False
+                    trash_last_seen_angle = 0.0
                     stop_all()
                     time.sleep(0.1)
                     continue
@@ -2190,6 +2192,7 @@ def autonomous_loop(driver, speed, detector=None):
                 )
                 active_trash_target_id = active_target.get("id")
                 active_trash_angle = detected_angle
+                trash_last_seen_angle = detected_angle
                 trash_lock_started_at = time.time()
                 trash_lock_samples = [detected_angle]
                 trash_turn_direction = 0
@@ -2233,6 +2236,7 @@ def autonomous_loop(driver, speed, detector=None):
                 if target is not None:
                     active_trash_target_id = target.get("id")
                     active_trash_angle = float(target.get("angle", 0.0))
+                    trash_last_seen_angle = active_trash_angle
                     trash_lock_samples.append(active_trash_angle)
                     trash_target_last_seen_at = time.time()
                     trash_target_last_seen_in_zone = False
@@ -2250,10 +2254,12 @@ def autonomous_loop(driver, speed, detector=None):
                     trash_centered_frames = 0
                     trash_target_last_seen_at = 0.0
                     trash_target_last_seen_in_zone = False
+                    trash_last_seen_angle = 0.0
                     time.sleep(0.1)
                     continue
 
                 active_trash_angle = _average_target_angles_deg(trash_lock_samples)
+                trash_last_seen_angle = active_trash_angle
                 print(
                     f"[AUTOPILOT] Target angle stabilized at {active_trash_angle:.1f} deg "
                     f"using {len(trash_lock_samples)} samples. Starting approach."
@@ -2277,6 +2283,7 @@ def autonomous_loop(driver, speed, detector=None):
                     trash_centered_frames = 0
                     trash_target_last_seen_at = 0.0
                     trash_target_last_seen_in_zone = False
+                    trash_last_seen_angle = 0.0
                     stop_all()
                     time.sleep(0.1)
                     continue
@@ -2302,15 +2309,20 @@ def autonomous_loop(driver, speed, detector=None):
                         print("[AUTO] Trash is very close, switching to blind collect.")
                         state = "TRASH_FINAL_PUSH"
                     elif lost_for <= TRASH_TARGET_MEMORY_SEC:
+                        remembered_angle = (
+                            trash_last_seen_angle
+                            if abs(trash_last_seen_angle) > 0.01
+                            else active_trash_angle
+                        )
                         print(
                             f"[AUTOPILOT] Temporarily lost trash for {lost_for:.1f}s. "
-                            "Continuing toward the last known position."
+                            f"Remembered angle: {remembered_angle:.1f} deg. Keeping the same turn side."
                         )
-                        abs_angle = abs(active_trash_angle)
+                        abs_angle = abs(remembered_angle)
                         if trash_turn_direction == 0:
-                            if active_trash_angle > TRASH_TURN_START_DEG:
+                            if remembered_angle > TRASH_TURN_START_DEG:
                                 trash_turn_direction = 1
-                            elif active_trash_angle < -TRASH_TURN_START_DEG:
+                            elif remembered_angle < -TRASH_TURN_START_DEG:
                                 trash_turn_direction = -1
                         elif abs_angle <= TRASH_TURN_STOP_DEG:
                             trash_centered_frames += 1
@@ -2319,18 +2331,18 @@ def autonomous_loop(driver, speed, detector=None):
                         else:
                             trash_centered_frames = 0
 
-                        forward_speed = max(850, int(speed * TRASH_FORWARD_SPEED_FACTOR))
-
                         if trash_turn_direction > 0:
-                            perform_trash_turn_step(active_trash_angle)
-                            trash_turn_direction = 0
+                            perform_trash_turn_step(remembered_angle)
                             trash_centered_frames = 0
                         elif trash_turn_direction < 0:
-                            perform_trash_turn_step(active_trash_angle)
-                            trash_turn_direction = 0
+                            perform_trash_turn_step(remembered_angle)
                             trash_centered_frames = 0
                         else:
-                            set_motors(forward_speed, 0, forward_speed, 0)
+                            print(
+                                "[AUTOPILOT] Lost trash and no strong remembered side is available. "
+                                "Stopping instead of changing direction."
+                            )
+                            stop_all()
                     else:
                         state = "FORWARD"
                         active_trash_target_id = None
@@ -2340,12 +2352,14 @@ def autonomous_loop(driver, speed, detector=None):
                         trash_centered_frames = 0
                         trash_target_last_seen_at = 0.0
                         trash_target_last_seen_in_zone = False
+                        trash_last_seen_angle = 0.0
                         stop_all()
                     time.sleep(0.1)
                     continue
 
                 active_trash_target_id = target.get("id")
                 active_trash_angle = float(target.get("angle", 0.0))
+                trash_last_seen_angle = active_trash_angle
                 dist = get_lidar_distance(scan, active_trash_angle)
                 target_in_zone = bool(target.get("in_collection_zone", False))
                 trash_target_last_seen_at = time.time()
@@ -2387,11 +2401,9 @@ def autonomous_loop(driver, speed, detector=None):
                     if trash_turn_direction > 0:
                         trash_centered_frames = 0
                         perform_trash_turn_step(active_trash_angle)
-                        trash_turn_direction = 0
                     elif trash_turn_direction < 0:
                         trash_centered_frames = 0
                         perform_trash_turn_step(active_trash_angle)
-                        trash_turn_direction = 0
                     else:
                         if trash_centered_frames > 0:
                             print(
@@ -2420,6 +2432,7 @@ def autonomous_loop(driver, speed, detector=None):
                 trash_centered_frames = 0
                 trash_target_last_seen_at = 0.0
                 trash_target_last_seen_in_zone = False
+                trash_last_seen_angle = 0.0
                 time.sleep(0.1)
                 continue
                 
@@ -2448,6 +2461,7 @@ def autonomous_loop(driver, speed, detector=None):
                 trash_centered_frames = 0
                 trash_target_last_seen_at = 0.0
                 trash_target_last_seen_in_zone = False
+                trash_last_seen_angle = 0.0
                 next_target = _get_detector_target(
                     detector,
                     exclude_ids=_cleanup_completed_trash_targets(
@@ -2460,6 +2474,7 @@ def autonomous_loop(driver, speed, detector=None):
                 ):
                     active_trash_target_id = next_target.get("id")
                     active_trash_angle = float(next_target.get("angle", 0.0))
+                    trash_last_seen_angle = active_trash_angle
                     trash_lock_started_at = time.time()
                     trash_lock_samples = [active_trash_angle]
                     trash_turn_direction = 0
