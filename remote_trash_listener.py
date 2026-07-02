@@ -252,15 +252,11 @@ class RemoteTrashListener:
                     self.route_data_fresh = True
                     self.last_packet_time = last_receive_time
                     self._cleanup_ignored_targets(last_receive_time)
-                    self.targets = (
-                        [
-                            target
-                            for target in parsed_targets
-                            if target.get("id") not in self._ignored_target_ids
-                        ]
-                        if self.app_enabled
-                        else []
-                    )
+                    self.targets = [
+                        target
+                        for target in parsed_targets
+                        if target.get("id") not in self._ignored_target_ids
+                    ]
                     self._refresh_primary_target_locked()
                     primary_target = dict(self.targets[0]) if self.targets else None
 
