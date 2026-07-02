@@ -1800,6 +1800,7 @@ def autonomous_loop(driver, speed, detector=None):
     target_loss_stop_until = 0.0
     target_loss_turn_attempts = 0
     turn_started_after_target_loss = False
+    waiting_for_app_enable = False
     def pick_best_turn(scan):
         best_angle = 0
         max_clear = 0.0
@@ -1817,6 +1818,21 @@ def autonomous_loop(driver, speed, detector=None):
         while driver.running:
             # --- Р›РћР“РРљРђ РЎР‘РћР Рђ РњРЈРЎРћР Рђ (YOLO) ---
             scan = driver.get_latest_scan()
+            if detector is not None and hasattr(detector, "app_enabled"):
+                app_drive_enabled = bool(getattr(detector, "app_enabled", False))
+                if not app_drive_enabled:
+                    if not waiting_for_app_enable:
+                        print("[AUTOPILOT] Waiting for app startup confirmation.")
+                        waiting_for_app_enable = True
+                    state = "FORWARD"
+                    active_trash_target_id = None
+                    stop_all()
+                    time.sleep(0.1)
+                    continue
+                elif waiting_for_app_enable:
+                    print("[AUTOPILOT] App startup confirmed. Enabling lidar + camera autopilot.")
+                    waiting_for_app_enable = False
+
             ignored_target_ids = _cleanup_completed_trash_targets(
                 completed_trash_targets
             )
@@ -1901,13 +1917,15 @@ def autonomous_loop(driver, speed, detector=None):
                     turn_started_after_target_loss = False
                     state = "FORWARD"
                 else:
-                    # РџРѕРґСЂСѓР»РёРІР°РЅРёРµ (РёСЃРїРѕР»СЊР·СѓРµРј 50% СЃРєРѕСЂРѕСЃС‚Рё РґР»СЏ РїР»Р°РІРЅРѕСЃС‚Рё)
-                    if active_trash_angle > 10:
-                        set_motors(speed//2, 0, 0, speed//2) # Р’РїСЂР°РІРѕ
-                    elif active_trash_angle < -10:
-                        set_motors(0, speed//2, speed//2, 0) # Р’Р»РµРІРѕ
+                    # Gentle camera-based steering toward trash.
+                    steer_speed = max(450, speed // 4)
+                    forward_speed = max(550, speed // 3)
+                    if active_trash_angle > 14:
+                        set_motors(steer_speed, 0, 0, steer_speed) # Р’РїСЂР°РІРѕ
+                    elif active_trash_angle < -14:
+                        set_motors(0, steer_speed, steer_speed, 0) # Р’Р»РµРІРѕ
                     else:
-                        set_motors(speed//2, 0, speed//2, 0) # РџСЂСЏРјРѕ
+                        set_motors(forward_speed, 0, forward_speed, 0) # РџСЂСЏРјРѕ
                 time.sleep(0.1)
                 continue
                 
